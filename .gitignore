@@ -1,0 +1,13 @@
+# Dossier de build CMake
+/build/
+
+# Fichiers Visual Studio
+*.user
+*.suo
+.vs/
+
+# Binaires
+*.exe
+*.obj
+*.pdb
+*.ilk

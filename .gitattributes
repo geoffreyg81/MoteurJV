@@ -1,0 +1,12 @@
+# Normalisation des fins de ligne pour un dépôt multi-plateforme.
+* text=auto eol=lf
+
+# Scripts shell : toujours LF (sinon ils cassent sous Linux/WSL).
+*.sh text eol=lf
+
+# Scripts PowerShell / batch : CRLF côté Windows.
+*.ps1 text eol=crlf
+
+# Fichiers binaires : pas de conversion.
+*.png binary
+*.wav binary
