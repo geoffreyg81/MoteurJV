@@ -73,10 +73,24 @@ private:
     }
 
     void onUpdate(float dt) override {
-        if (m_playing) {
-            // Limiter dt pour éviter les sauts quand on déplace la fenêtre.
-            physicsStep(m_reg, std::min(dt, 0.033f), {0.0f, 1800.0f});
+        if (!m_playing) return;
+
+        // En mode Play, l'entité sélectionnée (si elle a un RigidBody) est
+        // pilotable au clavier — sauf si ImGui est en train de capturer le clavier
+        // (édition d'un champ).
+        if (!ImGui::GetIO().WantCaptureKeyboard && m_reg.valid(m_selected) &&
+            m_reg.has<RigidBody>(m_selected)) {
+            RigidBody& rb = m_reg.get<RigidBody>(m_selected);
+            float vx = 0.0f;
+            if (Input::isDown(Key::Left)  || Input::isDown(Key::A) || Input::isDown(Key::Q)) vx -= 260.0f;
+            if (Input::isDown(Key::Right) || Input::isDown(Key::D))                          vx += 260.0f;
+            rb.velocity.x = vx;
+            const bool jump = Input::isPressed(Key::Space) || Input::isPressed(Key::Up) ||
+                              Input::isPressed(Key::W) || Input::isPressed(Key::Z);
+            if (jump && rb.onGround) rb.velocity.y = -760.0f;
         }
+
+        physicsStep(m_reg, std::min(dt, 0.033f), {0.0f, 1800.0f}); // dt borné = stable
     }
 
     void onRender() override {
@@ -109,7 +123,10 @@ private:
                 m_selected = e;
             }
             ImGui::SameLine();
-            ImGui::TextDisabled("  |  MoteurJV - editeur (hierarchie + inspecteur)");
+            if (m_playing)
+                ImGui::TextDisabled("  |  Play : pilote l'entite selectionnee (Fleches/ZQSD + Espace)");
+            else
+                ImGui::TextDisabled("  |  Selectionne une entite, puis Play pour la piloter");
             ImGui::EndMainMenuBar();
         }
     }
