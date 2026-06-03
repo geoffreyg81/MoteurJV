@@ -144,8 +144,11 @@ Commandes : **Gauche/Droite** (Flèches ou ZQSD) · **Espace** pour sauter ·
 
 ## Éditeur visuel (`examples/05_editor`)
 
-Un éditeur **Dear ImGui** (backend [rlImGui](https://github.com/raylib-extras/rlImGui),
-le tout récupéré par CMake) par-dessus le rendu du moteur :
+Un éditeur **Dear ImGui** (branche docking + backend [rlImGui](https://github.com/raylib-extras/rlImGui),
+le tout récupéré par CMake) avec un look **facon Unity** : thème sombre
+personnalisé, **layout ancré (DockSpace)** à 3 zones, barre de menus
+Fichier/Édition/Affichage, et le jeu rendu dans une **RenderTexture** affichée
+dans une fenêtre Viewport centrale.
 
 - **Hiérarchie** (gauche) : liste toutes les entités du `Registry`, cliquables
 - **Inspecteur** (droite) : édite **en temps réel** les composants de l'entité
@@ -157,9 +160,12 @@ le tout récupéré par CMake) par-dessus le rendu du moteur :
   l'entité sélectionnée (avec `RigidBody`) se pilote au clavier
 - **Sauver / Charger** : sérialise toute la scène en **JSON** (`scene.json`) —
   la brique qui transforme l'éditeur en outil de production
+- **Panneau Assets** (bas) : liste les fichiers de `assets/` (textures, sons)
 - L'entité sélectionnée est surlignée en jaune dans la scène
+- Panneaux **dockables** : réorganisables à la souris, comme dans Unity
 
-**Phase 3 complète** (hiérarchie + inspecteur + viewport souris + sérialisation).
+**Phase 3 complète** (hiérarchie + inspecteur + viewport souris + sérialisation
++ look Unity dockable).
 
 ## Scripting Lua (`examples/03_lua`)
 

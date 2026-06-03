@@ -41,7 +41,7 @@ FetchContent_MakeAvailable(json)
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG        v1.92.1
+    GIT_TAG        docking   # branche docking (DockSpace, layout ancré facon Unity)
 )
 FetchContent_MakeAvailable(imgui)
 

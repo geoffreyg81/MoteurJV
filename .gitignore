@@ -14,3 +14,6 @@
 
 # Scènes générées par l'éditeur
 examples/05_editor/scene.json
+
+# Layout ImGui (généré au runtime)
+imgui.ini
