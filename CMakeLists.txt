@@ -19,7 +19,18 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(raylib)
 
+# --- Scripting : Lua + sol2 ----------------------------------------------
+# Lua : installé via le système (liblua5.4-dev). sol2 : binding C++ header-only.
+find_package(Lua 5.4 REQUIRED)
+FetchContent_Declare(
+    sol2
+    GIT_REPOSITORY https://github.com/ThePhD/sol2.git
+    GIT_TAG        v3.3.0
+)
+FetchContent_MakeAvailable(sol2)
+
 # --- Le moteur + les exemples --------------------------------------------
 add_subdirectory(engine)
 add_subdirectory(examples/01_perso2d)
 add_subdirectory(examples/02_jeu)
+add_subdirectory(examples/03_lua)

@@ -75,7 +75,8 @@ MoteurJV/
 ├── examples/
 │   ├── 01_perso2d/          # démo technique : perso animé, collisions, physique
 │   │   └── assets/          #   hero_sheet.png (généré), sons (généré)
-│   └── 02_jeu/              # un VRAI petit jeu : platformer 3 niveaux + ennemis
+│   ├── 02_jeu/              # un VRAI petit jeu : platformer 3 niveaux + ennemis
+│   └── 03_lua/              # un jeu écrit en Lua (game.lua) — sans recompiler
 ├── tools/                   # make_sprite.py (génère les assets), scripts WSL
 ├── build.sh                 # build + run sous Linux/WSL
 ├── build.ps1                # build + run sous Windows natif
@@ -96,7 +97,11 @@ les binaires Linux ne sont pas concernés, et la fenêtre s'affiche via WSLg.
 # dans Ubuntu (WSL) :
 ./build.sh run        # la démo technique (examples/01_perso2d)
 ./build.sh run jeu    # le petit jeu : platformer 3 niveaux (examples/02_jeu)
+./build.sh run lua    # un jeu écrit en Lua (examples/03_lua)
 ```
+
+Dépendance supplémentaire pour l'exemple Lua : `liblua5.4-dev`
+(`sudo apt install liblua5.4-dev`). sol2 est récupéré par CMake.
 
 Dépendances Ubuntu (déjà installées) : `cmake`, `build-essential`,
 `libgl1-mesa-dev`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`,
@@ -132,6 +137,31 @@ preuve que MoteurJV sert à faire des jeux :
 
 Commandes : **Gauche/Droite** (Flèches ou ZQSD) · **Espace** pour sauter ·
 **Tab** debug collisions · **P** musique.
+
+## Scripting Lua (`examples/03_lua`)
+
+Le moteur peut être piloté depuis **Lua** (binding via [sol2](https://github.com/ThePhD/sol2)) :
+toute la logique d'un jeu peut vivre dans un fichier `.lua` chargé à l'exécution,
+**modifiable et relançable sans recompiler le C++**. C'est le passage de
+« moteur pour soi » à « moteur pour les autres ».
+
+Le programme C++ hôte expose une API et appelle automatiquement `start()`,
+`update(dt)` et `draw()` définis côté Lua :
+
+```lua
+-- game.lua
+function update(dt)
+    if Input.down("right") then player.x = player.x + 200 * dt end
+end
+function draw()
+    Graphics.circle(player.x, player.y, 22, 80, 170, 240)
+    Graphics.text("Score: " .. score, 16, 16, 22, 255, 255, 255)
+end
+```
+
+API exposée pour l'instant : `Graphics.rect/circle/text`, `Input.down/pressed`,
+`SCREEN_W/H`. **Prochaine étape** : exposer l'ECS (`Registry`, composants) à Lua
+pour créer des entités et des systèmes entièrement en script.
 
 ## Écrire un jeu avec le moteur (ECS)
 
@@ -207,7 +237,7 @@ anim.play("idle");
 - [x] **Mini-physique maison** (`RigidBody` + `physicsStep` : gravité, saut, AABB)
 - [x] **Jeu d'exemple complet** : platformer 3 niveaux, ennemis, score (`examples/02_jeu`)
 - [ ] Physique avancée (Box2D : joints, forces, rebonds) — optionnel
-- [ ] **Scripting** (Lua via sol2) — Phase 2, étape 3
+- [x] **Scripting Lua** (sol2) — jeu en `game.lua` sans recompiler ; exposer l'ECS = à venir
 - [ ] **Phase 3** : éditeur visuel (Dear ImGui)
 - [ ] **Phase 4** : écosystème (docs, assets, communauté)
 
