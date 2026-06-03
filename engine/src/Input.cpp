@@ -28,6 +28,15 @@ int toRaylibKey(Key k) {
     return 0;
 }
 
+int toRaylibMouse(Mouse b) {
+    switch (b) {
+        case Mouse::Left:   return MOUSE_BUTTON_LEFT;
+        case Mouse::Right:  return MOUSE_BUTTON_RIGHT;
+        case Mouse::Middle: return MOUSE_BUTTON_MIDDLE;
+    }
+    return MOUSE_BUTTON_LEFT;
+}
+
 } // namespace
 
 namespace Input {
@@ -35,6 +44,12 @@ namespace Input {
 bool isDown(Key k)     { return IsKeyDown(toRaylibKey(k)); }
 bool isPressed(Key k)  { return IsKeyPressed(toRaylibKey(k)); }
 bool isReleased(Key k) { return IsKeyReleased(toRaylibKey(k)); }
+
+Vec2 mousePosition() { const ::Vector2 p = GetMousePosition(); return {p.x, p.y}; }
+Vec2 mouseDelta()    { const ::Vector2 d = GetMouseDelta();    return {d.x, d.y}; }
+bool mouseDown(Mouse b)     { return IsMouseButtonDown(toRaylibMouse(b)); }
+bool mousePressed(Mouse b)  { return IsMouseButtonPressed(toRaylibMouse(b)); }
+bool mouseReleased(Mouse b) { return IsMouseButtonReleased(toRaylibMouse(b)); }
 
 } // namespace Input
 } // namespace mjv

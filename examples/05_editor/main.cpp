@@ -8,14 +8,22 @@
 //      physique tourner pendant qu'on édite.
 
 #include <algorithm>
+#include <fstream>
 #include <string>
+
+#include <nlohmann/json.hpp>
 
 #include "imgui.h"
 #include "rlImGui.h"
 
 #include "mjv/mjv.hpp"
 
+#ifndef MJV_EDITOR_DIR
+#define MJV_EDITOR_DIR "."
+#endif
+
 using namespace mjv;
+using json = nlohmann::json;
 
 class Editor : public Application {
 public:
@@ -35,6 +43,10 @@ private:
     Registry m_reg;
     Entity m_selected = NullEntity;
     bool m_playing = false;
+    bool m_dragging = false;
+    Vec2 m_dragOffset;
+    std::string m_status;
+    float m_statusTimer = 0.0f;
 
     void onStart() override {
         rlImGuiSetup(true); // true = thème sombre
@@ -73,25 +85,117 @@ private:
     }
 
     void onUpdate(float dt) override {
-        if (!m_playing) return;
-
-        // En mode Play, l'entité sélectionnée (si elle a un RigidBody) est
-        // pilotable au clavier — sauf si ImGui est en train de capturer le clavier
-        // (édition d'un champ).
-        if (!ImGui::GetIO().WantCaptureKeyboard && m_reg.valid(m_selected) &&
-            m_reg.has<RigidBody>(m_selected)) {
-            RigidBody& rb = m_reg.get<RigidBody>(m_selected);
-            float vx = 0.0f;
-            if (Input::isDown(Key::Left)  || Input::isDown(Key::A) || Input::isDown(Key::Q)) vx -= 260.0f;
-            if (Input::isDown(Key::Right) || Input::isDown(Key::D))                          vx += 260.0f;
-            rb.velocity.x = vx;
-            const bool jump = Input::isPressed(Key::Space) || Input::isPressed(Key::Up) ||
-                              Input::isPressed(Key::W) || Input::isPressed(Key::Z);
-            if (jump && rb.onGround) rb.velocity.y = -760.0f;
+        if (m_playing) {
+            // En mode Play, l'entité sélectionnée (si RigidBody) est pilotable —
+            // sauf si ImGui capture le clavier (édition d'un champ).
+            if (!ImGui::GetIO().WantCaptureKeyboard && m_reg.valid(m_selected) &&
+                m_reg.has<RigidBody>(m_selected)) {
+                RigidBody& rb = m_reg.get<RigidBody>(m_selected);
+                float vx = 0.0f;
+                if (Input::isDown(Key::Left)  || Input::isDown(Key::A) || Input::isDown(Key::Q)) vx -= 260.0f;
+                if (Input::isDown(Key::Right) || Input::isDown(Key::D))                          vx += 260.0f;
+                rb.velocity.x = vx;
+                const bool jump = Input::isPressed(Key::Space) || Input::isPressed(Key::Up) ||
+                                  Input::isPressed(Key::W) || Input::isPressed(Key::Z);
+                if (jump && rb.onGround) rb.velocity.y = -760.0f;
+            }
+            physicsStep(m_reg, std::min(dt, 0.033f), {0.0f, 1800.0f}); // dt borné = stable
         }
 
-        physicsStep(m_reg, std::min(dt, 0.033f), {0.0f, 1800.0f}); // dt borné = stable
+        handleMouse(); // sélection au clic + glisser, en édition comme en Play
+        if (m_statusTimer > 0.0f) m_statusTimer -= dt;
     }
+
+    // L'entité (avec Transform + RectShape) dont la boîte contient le point ;
+    // on garde la dernière trouvée = celle dessinée au-dessus.
+    Entity pickEntity(Vec2 p) {
+        Entity hit = NullEntity;
+        m_reg.view<Transform2D, RectShape>([&](Entity e, Transform2D& tr, RectShape& s) {
+            if (std::abs(p.x - tr.position.x) <= s.size.x * 0.5f &&
+                std::abs(p.y - tr.position.y) <= s.size.y * 0.5f) {
+                hit = e;
+            }
+        });
+        return hit;
+    }
+
+    void handleMouse() {
+        if (ImGui::GetIO().WantCaptureMouse) { m_dragging = false; return; } // souris sur un panneau
+        const Vec2 m = Input::mousePosition();
+
+        if (Input::mousePressed(Mouse::Left)) {
+            const Entity hit = pickEntity(m);
+            if (hit != NullEntity) {
+                m_selected = hit;
+                m_dragging = true;
+                m_dragOffset = m_reg.get<Transform2D>(hit).position - m;
+            }
+        }
+        if (m_dragging && Input::mouseDown(Mouse::Left) && m_reg.valid(m_selected) &&
+            m_reg.has<Transform2D>(m_selected)) {
+            m_reg.get<Transform2D>(m_selected).position = m + m_dragOffset;
+            if (m_reg.has<RigidBody>(m_selected)) m_reg.get<RigidBody>(m_selected).velocity = {0.0f, 0.0f};
+        }
+        if (Input::mouseReleased(Mouse::Left)) m_dragging = false;
+    }
+
+    // ----- Sérialisation JSON -----
+    static json vecToJ(Vec2 v) { return json::array({v.x, v.y}); }
+    static Vec2 jToVec(const json& j) { return {j[0].get<float>(), j[1].get<float>()}; }
+
+    std::string scenePath() const { return std::string(MJV_EDITOR_DIR) + "/scene.json"; }
+
+    void saveScene() {
+        json doc;
+        doc["entities"] = json::array();
+        for (Entity e : m_reg.entities()) {
+            json je;
+            if (m_reg.has<Transform2D>(e)) {
+                Transform2D& t = m_reg.get<Transform2D>(e);
+                je["Transform2D"] = {{"position", vecToJ(t.position)}, {"rotation", t.rotation}, {"scale", vecToJ(t.scale)}};
+            }
+            if (m_reg.has<RectShape>(e)) {
+                RectShape& r = m_reg.get<RectShape>(e);
+                je["RectShape"] = {{"size", vecToJ(r.size)}, {"color", json::array({r.color.r, r.color.g, r.color.b})}};
+            }
+            if (m_reg.has<RigidBody>(e)) je["RigidBody"] = {{"gravityScale", m_reg.get<RigidBody>(e).gravityScale}};
+            if (m_reg.has<AABB>(e))      je["AABB"] = {{"halfSize", vecToJ(m_reg.get<AABB>(e).halfSize)}};
+            if (m_reg.has<Velocity>(e))  je["Velocity"] = {{"value", vecToJ(m_reg.get<Velocity>(e).value)}};
+            doc["entities"].push_back(je);
+        }
+        std::ofstream f(scenePath());
+        if (f) { f << doc.dump(2); setStatus("Scene sauvegardee -> scene.json"); }
+        else setStatus("Echec de la sauvegarde");
+    }
+
+    void loadScene() {
+        std::ifstream f(scenePath());
+        if (!f) { setStatus("Aucun scene.json a charger"); return; }
+        json doc;
+        try { f >> doc; } catch (...) { setStatus("scene.json invalide"); return; }
+
+        m_reg.clear();
+        m_selected = NullEntity;
+        for (const json& je : doc["entities"]) {
+            Entity e = m_reg.create();
+            if (je.contains("Transform2D")) {
+                const json& j = je["Transform2D"];
+                m_reg.add<Transform2D>(e, Transform2D{jToVec(j["position"]), j["rotation"].get<float>(), jToVec(j["scale"])});
+            }
+            if (je.contains("RectShape")) {
+                const json& j = je["RectShape"];
+                const json& c = j["color"];
+                m_reg.add<RectShape>(e, RectShape{jToVec(j["size"]),
+                    mjv::Color{c[0].get<std::uint8_t>(), c[1].get<std::uint8_t>(), c[2].get<std::uint8_t>(), 255}});
+            }
+            if (je.contains("RigidBody")) { RigidBody rb; rb.gravityScale = je["RigidBody"]["gravityScale"].get<float>(); m_reg.add<RigidBody>(e, rb); }
+            if (je.contains("AABB"))      m_reg.add<AABB>(e, AABB{jToVec(je["AABB"]["halfSize"])});
+            if (je.contains("Velocity"))  m_reg.add<Velocity>(e, Velocity{jToVec(je["Velocity"]["value"])});
+        }
+        setStatus("Scene chargee depuis scene.json");
+    }
+
+    void setStatus(const std::string& s) { m_status = s; m_statusTimer = 3.0f; }
 
     void onRender() override {
         // 1) Le rendu du moteur (la scène).
@@ -123,10 +227,12 @@ private:
                 m_selected = e;
             }
             ImGui::SameLine();
-            if (m_playing)
-                ImGui::TextDisabled("  |  Play : pilote l'entite selectionnee (Fleches/ZQSD + Espace)");
-            else
-                ImGui::TextDisabled("  |  Selectionne une entite, puis Play pour la piloter");
+            if (ImGui::Button("Sauver")) saveScene();
+            ImGui::SameLine();
+            if (ImGui::Button("Charger")) loadScene();
+            ImGui::SameLine();
+            if (m_statusTimer > 0.0f) ImGui::TextColored(ImVec4(0.6f, 1.0f, 0.6f, 1.0f), "%s", m_status.c_str());
+            else ImGui::TextDisabled("  |  Clic = selectionner, glisser = deplacer | Play pour piloter");
             ImGui::EndMainMenuBar();
         }
     }

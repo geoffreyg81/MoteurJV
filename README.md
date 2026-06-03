@@ -151,11 +151,15 @@ le tout récupéré par CMake) par-dessus le rendu du moteur :
 - **Inspecteur** (droite) : édite **en temps réel** les composants de l'entité
   sélectionnée (position, taille, **couleur**, vitesse, gravité…), ajoute/retire
   des composants
-- **Play / Pause** : lance la physique du moteur pendant que tu édites
+- **Viewport cliquable** : clique une entité dans la scène pour la sélectionner ;
+  **glisse-la à la souris** pour la repositionner
+- **Play / Pause** : lance la physique du moteur pendant que tu édites ; en Play,
+  l'entité sélectionnée (avec `RigidBody`) se pilote au clavier
+- **Sauver / Charger** : sérialise toute la scène en **JSON** (`scene.json`) —
+  la brique qui transforme l'éditeur en outil de production
 - L'entité sélectionnée est surlignée en jaune dans la scène
 
-C'est le début de la **Phase 3**. À venir : viewport cliquable (sélection à la
-souris), déplacement à la souris, et sauvegarde/chargement de scène (JSON).
+**Phase 3 complète** (hiérarchie + inspecteur + viewport souris + sérialisation).
 
 ## Scripting Lua (`examples/03_lua`)
 
@@ -287,8 +291,8 @@ anim.play("idle");
 - [x] **Jeu d'exemple complet** : platformer 3 niveaux, ennemis, score (`examples/02_jeu`)
 - [ ] Physique avancée (Box2D : joints, forces, rebonds) — optionnel
 - [x] **Scripting Lua** (sol2) — jeu en `game.lua`, **ECS + physique pilotés en Lua** (`reg:create`, `reg:add`, `reg:view2`, `mjv.physics`)
-- [x] **Phase 3 (début)** : éditeur Dear ImGui — hiérarchie + inspecteur live
-- [ ] Éditeur : viewport cliquable + déplacement souris + sauvegarde JSON
+- [x] **Phase 3** : éditeur Dear ImGui — hiérarchie, inspecteur live, viewport
+  cliquable + glisser souris, sauvegarde/chargement JSON
 - [ ] **Phase 4** : écosystème (docs, assets, communauté)
 
 ## Assets

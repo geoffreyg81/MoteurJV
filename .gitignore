@@ -11,3 +11,6 @@
 *.obj
 *.pdb
 *.ilk
+
+# Scènes générées par l'éditeur
+examples/05_editor/scene.json

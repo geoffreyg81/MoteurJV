@@ -29,6 +29,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(sol2)
 
+# --- Sérialisation : nlohmann/json (header-only) -------------------------
+FetchContent_Declare(
+    json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3
+)
+FetchContent_MakeAvailable(json)
+
 # --- Éditeur : Dear ImGui + backend raylib (rlImGui) ---------------------
 FetchContent_Declare(
     imgui
