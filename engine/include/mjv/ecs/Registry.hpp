@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <typeindex>
@@ -105,6 +106,13 @@ public:
     }
 
     bool valid(Entity e) const { return m_alive.find(e) != m_alive.end(); }
+
+    // Liste toutes les entités vivantes (triées), pour les outils (éditeur...).
+    std::vector<Entity> entities() const {
+        std::vector<Entity> v(m_alive.begin(), m_alive.end());
+        std::sort(v.begin(), v.end());
+        return v;
+    }
 
     // Supprime toutes les entités et tous les composants (ex. changement de niveau).
     void clear() {

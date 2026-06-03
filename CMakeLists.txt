@@ -29,9 +29,36 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(sol2)
 
+# --- Éditeur : Dear ImGui + backend raylib (rlImGui) ---------------------
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        v1.92.1
+)
+FetchContent_MakeAvailable(imgui)
+
+FetchContent_Declare(
+    rlimgui
+    GIT_REPOSITORY https://github.com/raylib-extras/rlImGui.git
+    GIT_TAG        main
+)
+FetchContent_MakeAvailable(rlimgui)
+
+# Petite bibliothèque qui compile ImGui + le backend raylib.
+add_library(imgui_rl STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${rlimgui_SOURCE_DIR}/rlImGui.cpp
+)
+target_include_directories(imgui_rl PUBLIC ${imgui_SOURCE_DIR} ${rlimgui_SOURCE_DIR})
+target_link_libraries(imgui_rl PUBLIC raylib)
+
 # --- Le moteur + les exemples --------------------------------------------
 add_subdirectory(engine)
 add_subdirectory(examples/01_perso2d)
 add_subdirectory(examples/02_jeu)
 add_subdirectory(examples/03_lua)
 add_subdirectory(examples/04_lua_ecs)
+add_subdirectory(examples/05_editor)

@@ -77,7 +77,8 @@ MoteurJV/
 │   │   └── assets/          #   hero_sheet.png (généré), sons (généré)
 │   ├── 02_jeu/              # un VRAI petit jeu : platformer 3 niveaux + ennemis
 │   ├── 03_lua/              # un jeu écrit en Lua (game.lua) — sans recompiler
-│   └── 04_lua_ecs/          # l'ECS + la physique pilotés depuis Lua (scene.lua)
+│   ├── 04_lua_ecs/          # l'ECS + la physique pilotés depuis Lua (scene.lua)
+│   └── 05_editor/           # un ÉDITEUR visuel (Dear ImGui) : hiérarchie + inspecteur
 ├── tools/                   # make_sprite.py (génère les assets), scripts WSL
 ├── build.sh                 # build + run sous Linux/WSL
 ├── build.ps1                # build + run sous Windows natif
@@ -100,6 +101,7 @@ les binaires Linux ne sont pas concernés, et la fenêtre s'affiche via WSLg.
 ./build.sh run jeu    # le petit jeu : platformer 3 niveaux (examples/02_jeu)
 ./build.sh run lua    # un jeu écrit en Lua (examples/03_lua)
 ./build.sh run lua-ecs # l'ECS + la physique pilotés en Lua (examples/04_lua_ecs)
+./build.sh run editor  # l'éditeur visuel ImGui (examples/05_editor)
 ```
 
 Dépendance supplémentaire pour l'exemple Lua : `liblua5.4-dev`
@@ -139,6 +141,21 @@ preuve que MoteurJV sert à faire des jeux :
 
 Commandes : **Gauche/Droite** (Flèches ou ZQSD) · **Espace** pour sauter ·
 **Tab** debug collisions · **P** musique.
+
+## Éditeur visuel (`examples/05_editor`)
+
+Un éditeur **Dear ImGui** (backend [rlImGui](https://github.com/raylib-extras/rlImGui),
+le tout récupéré par CMake) par-dessus le rendu du moteur :
+
+- **Hiérarchie** (gauche) : liste toutes les entités du `Registry`, cliquables
+- **Inspecteur** (droite) : édite **en temps réel** les composants de l'entité
+  sélectionnée (position, taille, **couleur**, vitesse, gravité…), ajoute/retire
+  des composants
+- **Play / Pause** : lance la physique du moteur pendant que tu édites
+- L'entité sélectionnée est surlignée en jaune dans la scène
+
+C'est le début de la **Phase 3**. À venir : viewport cliquable (sélection à la
+souris), déplacement à la souris, et sauvegarde/chargement de scène (JSON).
 
 ## Scripting Lua (`examples/03_lua`)
 
@@ -270,7 +287,8 @@ anim.play("idle");
 - [x] **Jeu d'exemple complet** : platformer 3 niveaux, ennemis, score (`examples/02_jeu`)
 - [ ] Physique avancée (Box2D : joints, forces, rebonds) — optionnel
 - [x] **Scripting Lua** (sol2) — jeu en `game.lua`, **ECS + physique pilotés en Lua** (`reg:create`, `reg:add`, `reg:view2`, `mjv.physics`)
-- [ ] **Phase 3** : éditeur visuel (Dear ImGui)
+- [x] **Phase 3 (début)** : éditeur Dear ImGui — hiérarchie + inspecteur live
+- [ ] Éditeur : viewport cliquable + déplacement souris + sauvegarde JSON
 - [ ] **Phase 4** : écosystème (docs, assets, communauté)
 
 ## Assets
