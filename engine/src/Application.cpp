@@ -11,8 +11,14 @@ namespace mjv {
 Application::Application() : Application(Config{}) {}
 
 Application::Application(Config cfg) : m_config(std::move(cfg)) {
+    unsigned int flags = 0;
+    if (m_config.resizable || m_config.maximized) flags |= FLAG_WINDOW_RESIZABLE;
+    if (m_config.maximized) flags |= FLAG_WINDOW_MAXIMIZED;
+    if (flags) SetConfigFlags(flags);
+
     InitWindow(m_config.width, m_config.height, m_config.title.c_str());
     SetTargetFPS(m_config.targetFps);
+    if (m_config.maximized) MaximizeWindow();
     Audio::init();
 }
 

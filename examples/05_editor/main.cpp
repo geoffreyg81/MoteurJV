@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -38,6 +39,7 @@ class Editor : public Application {
 public:
     Editor() : Application(makeConfig()) {}
     ~Editor() override {
+        for (auto& [name, tex] : m_thumbs) UnloadTexture(tex);
         UnloadRenderTexture(m_target);
         rlImGuiShutdown();
     }
@@ -49,6 +51,7 @@ private:
         c.height = 820;
         c.title = "MoteurJV - Editeur";
         c.clearColor = mjv::Color{30, 32, 38, 255};
+        c.maximized = true;   // ouvrir en grand (plein écran fenêtré)
         return c;
     }
 
@@ -65,6 +68,8 @@ private:
 
     ::RenderTexture2D m_target{};
     bool m_layoutInit = false;
+    std::unordered_map<std::string, ::Texture2D> m_thumbs; // miniatures d'images (cache)
+    mjv::Sound m_preview;                                  // son écouté au clic
 
     // Rectangle écran où le viewport est affiché (pour mapper la souris).
     Vec2 m_vpPos, m_vpSize;
@@ -362,25 +367,49 @@ private:
         ImGui::End();
     }
 
+    // Charge (et met en cache) la miniature d'une image.
+    ::Texture2D& thumbnail(const std::string& path) {
+        auto it = m_thumbs.find(path);
+        if (it != m_thumbs.end()) return it->second;
+        ::Texture2D tex = LoadTexture(path.c_str());
+        return m_thumbs.emplace(path, tex).first->second;
+    }
+
     void drawAssets() {
         ImGui::Begin("Assets");
-        ImGui::TextDisabled("Dossier : %s", MJV_ASSET_DIR);
+        ImGui::TextDisabled("Dossier : %s   (clique un son pour l'ecouter)", MJV_ASSET_DIR);
         ImGui::Separator();
         std::error_code ec;
         const fs::path dir(MJV_ASSET_DIR);
-        if (fs::exists(dir, ec)) {
-            for (const fs::directory_entry& f : fs::directory_iterator(dir, ec)) {
-                if (!f.is_regular_file()) continue;
-                const std::string name = f.path().filename().string();
-                const std::string ext = f.path().extension().string();
-                const char* tag = "[?]";
-                if (ext == ".png" || ext == ".jpg") tag = "[IMG]";
-                else if (ext == ".wav" || ext == ".ogg" || ext == ".mp3") tag = "[SON]";
-                else if (ext == ".lua") tag = "[LUA]";
-                ImGui::Selectable((std::string(tag) + " " + name).c_str());
+        if (!fs::exists(dir, ec)) { ImGui::TextDisabled("(dossier introuvable)"); ImGui::End(); return; }
+
+        const float cell = 92.0f; // largeur d'une tuile d'asset
+        float avail = ImGui::GetContentRegionAvail().x;
+        int perRow = std::max(1, static_cast<int>(avail / cell));
+        int i = 0;
+        for (const fs::directory_entry& f : fs::directory_iterator(dir, ec)) {
+            if (!f.is_regular_file()) continue;
+            const std::string path = f.path().string();
+            const std::string name = f.path().filename().string();
+            const std::string ext = f.path().extension().string();
+
+            ImGui::BeginGroup();
+            if (ext == ".png" || ext == ".jpg") {
+                ::Texture2D& t = thumbnail(path);
+                rlImGuiImageSize(&t, 64, 64);
+            } else if (ext == ".wav" || ext == ".ogg" || ext == ".mp3") {
+                if (ImGui::Button((">##" + name).c_str(), ImVec2(64, 64))) {
+                    if (m_preview.load(path)) m_preview.play(); // écoute
+                }
+            } else if (ext == ".lua") {
+                ImGui::Button(("Lua##" + name).c_str(), ImVec2(64, 64));
+            } else {
+                ImGui::Button(("?##" + name).c_str(), ImVec2(64, 64));
             }
-        } else {
-            ImGui::TextDisabled("(dossier introuvable)");
+            ImGui::TextWrapped("%s", name.c_str());
+            ImGui::EndGroup();
+
+            if (++i % perRow != 0) ImGui::SameLine();
         }
         ImGui::End();
     }

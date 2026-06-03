@@ -18,6 +18,8 @@ public:
         std::string title = "MoteurJV";
         int targetFps = 60;
         Color clearColor = Colors::DarkGray;
+        bool resizable = false;   // fenêtre redimensionnable
+        bool maximized = false;   // ouvrir maximisée (plein écran fenêtré)
     };
 
     Application();                       // configuration par défaut
