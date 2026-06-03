@@ -176,15 +176,26 @@ private:
         handleViewportInteraction(); // utilise le rect viewport de la frame précédente
 
         if (m_playing) {
-            if (!ImGui::GetIO().WantCaptureKeyboard && m_reg.valid(m_selected) && m_reg.has<RigidBody>(m_selected)) {
-                RigidBody& rb = m_reg.get<RigidBody>(m_selected);
-                float vx = 0.0f;
-                if (Input::isDown(Key::Left)  || Input::isDown(Key::A) || Input::isDown(Key::Q)) vx -= 260.0f;
-                if (Input::isDown(Key::Right) || Input::isDown(Key::D))                          vx += 260.0f;
-                rb.velocity.x = vx;
-                const bool jump = Input::isPressed(Key::Space) || Input::isPressed(Key::Up) ||
-                                  Input::isPressed(Key::W) || Input::isPressed(Key::Z);
-                if (jump && rb.onGround) rb.velocity.y = -760.0f;
+            // En Play, l'entite SELECTIONNEE est pilotable, qu'elle ait un corps
+            // physique ou non (sauf si ImGui capture le clavier).
+            if (!ImGui::GetIO().WantCaptureKeyboard && m_reg.valid(m_selected) && m_reg.has<Transform2D>(m_selected)) {
+                const int L = (Input::isDown(Key::Left)  || Input::isDown(Key::A) || Input::isDown(Key::Q)) ? 1 : 0;
+                const int R = (Input::isDown(Key::Right) || Input::isDown(Key::D)) ? 1 : 0;
+                const int U = (Input::isDown(Key::Up)    || Input::isDown(Key::W) || Input::isDown(Key::Z)) ? 1 : 0;
+                const int D = (Input::isDown(Key::Down)  || Input::isDown(Key::S)) ? 1 : 0;
+                if (m_reg.has<RigidBody>(m_selected)) {
+                    RigidBody& rb = m_reg.get<RigidBody>(m_selected);
+                    rb.velocity.x = static_cast<float>(R - L) * 260.0f; // controle physique
+                    const bool jump = Input::isPressed(Key::Space) || Input::isPressed(Key::Up) ||
+                                      Input::isPressed(Key::W) || Input::isPressed(Key::Z);
+                    if (jump && rb.onGround) rb.velocity.y = -760.0f;
+                } else {
+                    // Deplacement libre (kinematique) : image / decor sans physique.
+                    Transform2D& t = m_reg.get<Transform2D>(m_selected);
+                    const float sp = 260.0f * dt;
+                    t.position.x += static_cast<float>(R - L) * sp;
+                    t.position.y += static_cast<float>(D - U) * sp;
+                }
             }
             physicsStep(m_reg, std::min(dt, 0.033f), {0.0f, 1800.0f});
         }
@@ -312,10 +323,13 @@ private:
             }
             ImGui::Separator();
             if (ImGui::Button(m_playing ? " Pause " : " Play ")) m_playing = !m_playing;
-            if (m_statusTimer > 0.0f) {
-                ImGui::SameLine();
+            ImGui::SameLine();
+            if (m_statusTimer > 0.0f)
                 ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.6f, 1.0f), "%s", m_status.c_str());
-            }
+            else if (m_playing)
+                ImGui::TextDisabled("Fleches/ZQSD deplacent l'entite selectionnee (Espace = saut si physique)");
+            else
+                ImGui::TextDisabled("Selectionne une entite, puis Play");
             ImGui::EndMainMenuBar();
         }
     }
