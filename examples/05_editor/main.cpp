@@ -35,6 +35,12 @@ using namespace mjv;
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
+// Composant propre à l'éditeur : une entité qui affiche une image (asset).
+struct SpriteAsset {
+    std::string path;
+    Vec2 size;
+};
+
 class Editor : public Application {
 public:
     Editor() : Application(makeConfig()) {}
@@ -144,6 +150,26 @@ private:
         return e;
     }
 
+    // Crée une entité-image à partir d'un asset (clic ou glisser depuis Assets).
+    Entity spawnSprite(const std::string& path, Vec2 pos) {
+        ::Texture2D& t = thumbnail(path);
+        const Vec2 size{static_cast<float>(t.width), static_cast<float>(t.height)};
+        Entity e = m_reg.create();
+        m_reg.add<Transform2D>(e, Transform2D{pos});
+        m_reg.add<AABB>(e, AABB{size * 0.5f});
+        m_reg.add<SpriteAsset>(e, SpriteAsset{path, size});
+        m_selected = e;
+        setStatus("Image ajoutee a la scene");
+        return e;
+    }
+
+    // Demi-tailles d'une entité (pour le clic et le surlignage).
+    Vec2 halfExtents(Entity e) {
+        if (m_reg.has<RectShape>(e)) return m_reg.get<RectShape>(e).size * 0.5f;
+        if (m_reg.has<AABB>(e))      return m_reg.get<AABB>(e).halfSize;
+        return {20.0f, 20.0f};
+    }
+
     // --------------------------------------------------------------- update
     void onUpdate(float dt) override {
         if (m_statusTimer > 0.0f) m_statusTimer -= dt;
@@ -175,9 +201,9 @@ private:
 
     Entity pickEntity(Vec2 p) {
         Entity hit = NullEntity;
-        m_reg.view<Transform2D, RectShape>([&](Entity e, Transform2D& tr, RectShape& s) {
-            if (std::abs(p.x - tr.position.x) <= s.size.x * 0.5f &&
-                std::abs(p.y - tr.position.y) <= s.size.y * 0.5f) hit = e;
+        m_reg.view<Transform2D>([&](Entity e, Transform2D& tr) {
+            const Vec2 h = halfExtents(e);
+            if (std::abs(p.x - tr.position.x) <= h.x && std::abs(p.y - tr.position.y) <= h.y) hit = e;
         });
         return hit;
     }
@@ -204,12 +230,24 @@ private:
     void renderSceneToTexture() {
         BeginTextureMode(m_target);
         Graphics::clear(Colors::SkyBlue);
-        m_reg.view<Transform2D, RectShape>([&](Entity e, Transform2D& tr, RectShape& s) {
+        // Formes (sol, plateformes, caisses).
+        m_reg.view<Transform2D, RectShape>([&](Entity, Transform2D& tr, RectShape& s) {
             Graphics::drawRectangleCentered(tr.position, s.size, s.color, tr.rotation);
             Graphics::drawRectangleOutlineCentered(tr.position, s.size, mjv::Color{20, 20, 28, 255}, 1.5f);
-            if (e == m_selected)
-                Graphics::drawRectangleOutlineCentered(tr.position, s.size + Vec2{8, 8}, Colors::Yellow, 2.5f);
         });
+        // Images (assets déposés dans la scène).
+        m_reg.view<Transform2D, SpriteAsset>([&](Entity, Transform2D& tr, SpriteAsset& sp) {
+            ::Texture2D& t = thumbnail(sp.path);
+            const ::Rectangle src{0, 0, static_cast<float>(t.width), static_cast<float>(t.height)};
+            const ::Rectangle dst{tr.position.x, tr.position.y, sp.size.x * tr.scale.x, sp.size.y * tr.scale.y};
+            DrawTexturePro(t, src, dst, ::Vector2{dst.width * 0.5f, dst.height * 0.5f}, tr.rotation, ::WHITE);
+        });
+        // Surlignage de la sélection.
+        if (m_reg.valid(m_selected) && m_reg.has<Transform2D>(m_selected)) {
+            const Vec2 h = halfExtents(m_selected);
+            Graphics::drawRectangleOutlineCentered(m_reg.get<Transform2D>(m_selected).position,
+                                                   h * 2.0f + Vec2{8, 8}, Colors::Yellow, 2.5f);
+        }
         EndTextureMode();
     }
 
@@ -291,6 +329,14 @@ private:
         m_vpPos = {mn.x, mn.y};
         m_vpSize = {mx.x - mn.x, mx.y - mn.y};
         m_vpHovered = ImGui::IsItemHovered();
+        // Déposer une image depuis le panneau Assets pour l'ajouter à la scène.
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("ASSET_IMG")) {
+                const std::string path(static_cast<const char*>(pl->Data));
+                spawnSprite(path, screenToWorld(Input::mousePosition()));
+            }
+            ImGui::EndDragDropTarget();
+        }
         ImGui::End();
         ImGui::PopStyleVar();
     }
@@ -314,6 +360,7 @@ private:
         if (m_reg.has<RigidBody>(e))   s += "P";
         if (m_reg.has<AABB>(e))        s += "B";
         if (m_reg.has<Velocity>(e))    s += "V";
+        if (m_reg.has<SpriteAsset>(e)) s += "S";
         return s + "]";
     }
 
@@ -396,7 +443,14 @@ private:
             ImGui::BeginGroup();
             if (ext == ".png" || ext == ".jpg") {
                 ::Texture2D& t = thumbnail(path);
-                rlImGuiImageSize(&t, 64, 64);
+                if (rlImGuiImageButtonSize(name.c_str(), &t, ::Vector2{64, 64}))
+                    spawnSprite(path, {kWorldW * 0.5f, kWorldH * 0.5f}); // clic = ajoute au centre
+                if (ImGui::BeginDragDropSource()) {
+                    ImGui::SetDragDropPayload("ASSET_IMG", path.c_str(), path.size() + 1);
+                    rlImGuiImageSize(&t, 48, 48);
+                    ImGui::Text("%s", name.c_str());
+                    ImGui::EndDragDropSource();
+                }
             } else if (ext == ".wav" || ext == ".ogg" || ext == ".mp3") {
                 if (ImGui::Button((">##" + name).c_str(), ImVec2(64, 64))) {
                     if (m_preview.load(path)) m_preview.play(); // écoute
@@ -435,6 +489,10 @@ private:
             if (m_reg.has<RigidBody>(e)) je["RigidBody"] = {{"gravityScale", m_reg.get<RigidBody>(e).gravityScale}};
             if (m_reg.has<AABB>(e))      je["AABB"] = {{"halfSize", vecToJ(m_reg.get<AABB>(e).halfSize)}};
             if (m_reg.has<Velocity>(e))  je["Velocity"] = {{"value", vecToJ(m_reg.get<Velocity>(e).value)}};
+            if (m_reg.has<SpriteAsset>(e)) {
+                SpriteAsset& sp = m_reg.get<SpriteAsset>(e);
+                je["SpriteAsset"] = {{"path", sp.path}, {"size", vecToJ(sp.size)}};
+            }
             doc["entities"].push_back(je);
         }
         std::ofstream f(scenePath());
@@ -463,6 +521,10 @@ private:
             if (je.contains("RigidBody")) { RigidBody rb; rb.gravityScale = je["RigidBody"]["gravityScale"].get<float>(); m_reg.add<RigidBody>(e, rb); }
             if (je.contains("AABB"))      m_reg.add<AABB>(e, AABB{jToVec(je["AABB"]["halfSize"])});
             if (je.contains("Velocity"))  m_reg.add<Velocity>(e, Velocity{jToVec(je["Velocity"]["value"])});
+            if (je.contains("SpriteAsset")) {
+                const json& j = je["SpriteAsset"];
+                m_reg.add<SpriteAsset>(e, SpriteAsset{j["path"].get<std::string>(), jToVec(j["size"])});
+            }
         }
         setStatus("Scene chargee");
     }
