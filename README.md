@@ -2,9 +2,12 @@
 
 Un moteur de jeu 2D open source, léger et moderne — en C++.
 
-> État : **v0.7**. Socle 2D complet : boucle de jeu, **ECS**, rendu, input,
-> **collisions AABB**, **sprites animés**, **audio**, **mini-physique** (gravité +
-> saut). Démo jouable : un **platformer** — personnage animé, plateformes, saut.
+> État : **v0.9**. Moteur 2D complet : boucle de jeu, **ECS**, rendu, input
+> (clavier + souris), **collisions AABB**, **sprites animés**, **audio**,
+> **mini-physique** (gravité + saut), **scripting Lua** (ECS exposé) et un
+> **éditeur visuel façon Unity** (hiérarchie, inspecteur live, viewport,
+> glisser-déposer d'assets, sauvegarde JSON). Démos : un platformer jouable,
+> des jeux écrits en Lua, et l'éditeur.
 
 ## Philosophie
 
@@ -42,16 +45,18 @@ une ligne de logique en plus.
 | *Comment* afficher, déplacer, animer, collisionner | *Quoi* : ce perso, ces caisses, à ces positions |
 | Marche pour n'importe quel jeu | Change à chaque projet |
 
-**Ce qu'on a, et ce qui manque** (honnêtement) :
+**Ce qu'on a aujourd'hui :**
 
 - ✅ Le **cœur** d'un moteur (la machinerie ECS) — la partie techniquement la plus dure
-- ✅ Rendu, input, collisions AABB, sprites animés
-- ❌ Pas encore d'**éditeur visuel** : on déclare en C++, pas à la souris (≠ Unity)
-- ❌ Pas encore de **scripting** (Lua) pour piloter le jeu sans recompiler
+- ✅ Rendu, input (clavier + souris), collisions AABB, sprites animés, audio, mini-physique
+- ✅ **Scripting Lua** : créer un jeu (entités, composants, physique) **sans recompiler**
+- ✅ **Éditeur visuel façon Unity** : hiérarchie, inspecteur live, viewport,
+  glisser-déposer d'assets, sauvegarde/chargement JSON
 
-C'est un **vrai moteur, mais jeune** — au stade « moteur-code », comme l'étaient
-Unity et Godot à leurs débuts. L'éditeur et le scripting sont les grosses briques
-qui le rapprocheront d'un moteur grand public (voir feuille de route).
+C'est désormais un **vrai moteur utilisable** : il a franchi le stade « moteur-code »
+et possède un éditeur — comme l'ont fait Unity et Godot après leurs débuts. Il
+reste évidemment beaucoup à étoffer : voir la **longue liste de fonctionnalités
+futures** plus bas.
 
 ## Architecture actuelle
 
@@ -61,7 +66,7 @@ MoteurJV/
 │   ├── include/mjv/         # API publique
 │   │   ├── Application.hpp  #   boucle de jeu, fenêtre, delta time
 │   │   ├── Graphics.hpp     #   façade de rendu 2D
-│   │   ├── Input.hpp        #   clavier
+│   │   ├── Input.hpp        #   clavier + souris
 │   │   ├── Texture.hpp      #   chargement d'images + dessin de régions (spritesheet)
 │   │   ├── Components.hpp   #   composants génériques (Velocity, RectShape, Sprite, AABB)
 │   │   ├── Animation.hpp    #   AnimationClip + Animator (spritesheet)
@@ -78,7 +83,7 @@ MoteurJV/
 │   ├── 02_jeu/              # un VRAI petit jeu : platformer 3 niveaux + ennemis
 │   ├── 03_lua/              # un jeu écrit en Lua (game.lua) — sans recompiler
 │   ├── 04_lua_ecs/          # l'ECS + la physique pilotés depuis Lua (scene.lua)
-│   └── 05_editor/           # un ÉDITEUR visuel (Dear ImGui) : hiérarchie + inspecteur
+│   └── 05_editor/           # ÉDITEUR visuel facon Unity (Dear ImGui docking)
 ├── tools/                   # make_sprite.py (génère les assets), scripts WSL
 ├── build.sh                 # build + run sous Linux/WSL
 ├── build.ps1                # build + run sous Windows natif
@@ -156,16 +161,19 @@ dans une fenêtre Viewport centrale.
   des composants
 - **Viewport cliquable** : clique une entité dans la scène pour la sélectionner ;
   **glisse-la à la souris** pour la repositionner
+- **Glisser-déposer d'assets** : depuis le panneau Assets, **glisse une image dans
+  le viewport** (ou clique-la) pour créer une entité qui l'affiche
 - **Play / Pause** : lance la physique du moteur pendant que tu édites ; en Play,
-  l'entité sélectionnée (avec `RigidBody`) se pilote au clavier
-- **Sauver / Charger** : sérialise toute la scène en **JSON** (`scene.json`) —
-  la brique qui transforme l'éditeur en outil de production
-- **Panneau Assets** (bas) : liste les fichiers de `assets/` (textures, sons)
-- L'entité sélectionnée est surlignée en jaune dans la scène
-- Panneaux **dockables** : réorganisables à la souris, comme dans Unity
+  l'**entité sélectionnée est jouable au clavier** — pilotage physique (avec saut)
+  si elle a un `RigidBody`, sinon déplacement libre
+- **Sauver / Charger** : sérialise toute la scène en **JSON** (`scene.json`),
+  images comprises — la brique qui transforme l'éditeur en outil de production
+- **Panneau Assets** (bas) : **miniatures** des images, **lecture des sons au clic**
+- Fenêtre large redimensionnable + **compteur de FPS**
+- L'entité sélectionnée est surlignée en jaune ; panneaux **dockables** (comme Unity)
 
-**Phase 3 complète** (hiérarchie + inspecteur + viewport souris + sérialisation
-+ look Unity dockable).
+**Phase 3 complète** (hiérarchie + inspecteur + viewport souris + glisser-déposer
+d'assets + sérialisation + look Unity dockable).
 
 ## Scripting Lua (`examples/03_lua`)
 
@@ -298,8 +306,80 @@ anim.play("idle");
 - [ ] Physique avancée (Box2D : joints, forces, rebonds) — optionnel
 - [x] **Scripting Lua** (sol2) — jeu en `game.lua`, **ECS + physique pilotés en Lua** (`reg:create`, `reg:add`, `reg:view2`, `mjv.physics`)
 - [x] **Phase 3** : éditeur Dear ImGui — hiérarchie, inspecteur live, viewport
-  cliquable + glisser souris, sauvegarde/chargement JSON
-- [ ] **Phase 4** : écosystème (docs, assets, communauté)
+  cliquable + glisser souris, **glisser-déposer d'assets**, sauvegarde/chargement JSON
+- [ ] **Phase 4** : écosystème (docs, assets, communauté) — *en cours*
+
+## Idées de fonctionnalités futures
+
+Une grande liste de pistes, regroupées par domaine. Rien n'est figé — c'est la
+matière à contributions et à versions futures.
+
+### 🎨 Rendu & graphismes
+- [ ] **Caméra 2D** : suivre le joueur, zoom, monde plus grand que l'écran
+- [ ] **Parallaxe** et couches (z-order, calques d'arrière/avant-plan)
+- [ ] **Tilemap** : décors à base de tuiles, import Tiled (`.tmx`)
+- [ ] **Système de particules** (étincelles, fumée, explosions)
+- [ ] **Éclairage 2D** et ombres dynamiques
+- [ ] **Shaders** personnalisés (post-traitement : flou, bloom, CRT…)
+- [ ] **Texte riche** : polices custom, alignement, info-bulles
+- [ ] **Atlas de textures** automatique (packing) pour les performances
+- [ ] **Flip/teinte/opacité** par sprite, modes de fusion (additif…)
+
+### 🧮 Physique & collisions
+- [ ] **Collision dynamique ↔ dynamique** (les corps se poussent entre eux)
+- [ ] **Pentes et plateformes traversables** (one-way platforms)
+- [ ] **Triggers / zones** (détecter une entrée sans bloquer)
+- [ ] **Raycast 2D** (tir, ligne de vue, capteurs)
+- [ ] **Collisions circulaires et polygonales** (pas que des AABB)
+- [ ] **Intégration Box2D** optionnelle (joints, ressorts, forces, friction)
+
+### 🎮 Gameplay & systèmes
+- [ ] **Machine à états** (IA d'ennemis, états du joueur)
+- [ ] **Système d'événements / messages** entre entités
+- [ ] **Prefabs** : modèles d'entités réutilisables et instanciables
+- [ ] **Hiérarchie parent/enfant** (transforms relatifs, attacher une arme au héros)
+- [ ] **Timers, tweens et courbes** d'animation (easing)
+- [ ] **Sauvegarde de partie** (progression, high-scores)
+- [ ] **Système d'inventaire / stats** générique
+
+### 🔊 Audio
+- [ ] **Sons spatialisés** (volume selon la distance)
+- [ ] **Bus & mixage** (volumes musique / SFX séparés, fondu)
+- [ ] **Pool de voix** (jouer plusieurs fois le même son sans coupure)
+
+### 🖥️ Éditeur
+- [ ] **Redimensionner / pivoter** les entités avec des poignées (gizmos)
+- [ ] **Grille & magnétisme** (snap), règles, alignement
+- [ ] **Undo / Redo**
+- [ ] **Copier / coller / dupliquer** des entités
+- [ ] **Multi-sélection** et édition groupée
+- [ ] **Onglets de scènes** + gestion de projet (plusieurs niveaux)
+- [ ] **Aperçu des animations** dans l'inspecteur
+- [ ] **Importer un asset par glisser-déposer** depuis l'explorateur Windows
+- [ ] **Console de logs** intégrée, profileur (FPS, nb d'entités, draw calls)
+- [ ] **Thèmes** d'interface, raccourcis clavier configurables
+
+### 📜 Scripting Lua
+- [ ] Exposer **`Sprite` / `Animator`** et l'**audio** à Lua
+- [ ] **Hot-reload** du script (recharger sans relancer)
+- [ ] Brancher des **scripts par entité** (composant `Script { fichier .lua }`)
+- [ ] **Rechargement à chaud** des assets
+
+### 🛠️ Outils & qualité
+- [ ] **Rebinding du clavier** + manettes (gamepad), distinction touche physique / caractère
+- [ ] **Tests automatisés** (CI GitHub Actions : build + tests sur Linux/Windows)
+- [ ] **Système de logs** propre (`mjv::Log`) avec niveaux
+- [ ] **Gestion d'assets** centralisée (`AssetManager`, cache, références)
+- [ ] **Sérialisation générique** (réflexion légère des composants)
+
+### 🌍 Plateformes & écosystème
+- [ ] **Build natif Windows** signé (contourner Smart App Control proprement)
+- [ ] **Export Web** (WebAssembly via Emscripten) — jouer dans le navigateur
+- [ ] **Mobile** (Android / iOS)
+- [ ] **Site de documentation** (MkDocs / Docusaurus) + tutoriels « ton premier jeu »
+- [ ] **Template de projet** (`mjv new mon-jeu`) pour démarrer en un clic
+- [ ] **Galerie d'exemples** et de jeux de la communauté
+- [ ] **Discord**, guide de contribution, bonnes premières issues
 
 ## Assets
 
