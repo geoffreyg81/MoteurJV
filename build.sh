@@ -27,6 +27,7 @@ if [ "${1:-build}" = "run" ]; then
   case "${2:-perso2d}" in
     jeu) EXE="$BUILD_DIR/examples/02_jeu/jeu" ;;
     lua) EXE="$BUILD_DIR/examples/03_lua/lua_demo" ;;
+    lua-ecs) EXE="$BUILD_DIR/examples/04_lua_ecs/lua_ecs" ;;
     *)   EXE="$BUILD_DIR/examples/01_perso2d/perso2d" ;;
   esac
   echo "==> Lancement : $EXE"

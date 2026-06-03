@@ -76,7 +76,8 @@ MoteurJV/
 │   ├── 01_perso2d/          # démo technique : perso animé, collisions, physique
 │   │   └── assets/          #   hero_sheet.png (généré), sons (généré)
 │   ├── 02_jeu/              # un VRAI petit jeu : platformer 3 niveaux + ennemis
-│   └── 03_lua/              # un jeu écrit en Lua (game.lua) — sans recompiler
+│   ├── 03_lua/              # un jeu écrit en Lua (game.lua) — sans recompiler
+│   └── 04_lua_ecs/          # l'ECS + la physique pilotés depuis Lua (scene.lua)
 ├── tools/                   # make_sprite.py (génère les assets), scripts WSL
 ├── build.sh                 # build + run sous Linux/WSL
 ├── build.ps1                # build + run sous Windows natif
@@ -98,6 +99,7 @@ les binaires Linux ne sont pas concernés, et la fenêtre s'affiche via WSLg.
 ./build.sh run        # la démo technique (examples/01_perso2d)
 ./build.sh run jeu    # le petit jeu : platformer 3 niveaux (examples/02_jeu)
 ./build.sh run lua    # un jeu écrit en Lua (examples/03_lua)
+./build.sh run lua-ecs # l'ECS + la physique pilotés en Lua (examples/04_lua_ecs)
 ```
 
 Dépendance supplémentaire pour l'exemple Lua : `liblua5.4-dev`
@@ -159,9 +161,39 @@ function draw()
 end
 ```
 
-API exposée pour l'instant : `Graphics.rect/circle/text`, `Input.down/pressed`,
-`SCREEN_W/H`. **Prochaine étape** : exposer l'ECS (`Registry`, composants) à Lua
-pour créer des entités et des systèmes entièrement en script.
+### L'ECS piloté depuis Lua (`examples/04_lua_ecs`)
+
+On va plus loin : **l'ECS lui-même est exposé à Lua**. Un jeu peut créer de
+vraies entités et leur ajouter des composants, pendant que la **physique C++**
+tourne dessus — c'est ce qui sépare le « scripting basique » du « moteur
+vraiment scriptable ».
+
+```lua
+-- scene.lua : une scène ECS construite entièrement en Lua
+local e = reg:create()
+local t = reg:add(e, "Transform2D"); t.position = Vec2.new(120, 100)
+reg:add(e, "RigidBody")            -- soumis à la gravité
+local a = reg:add(e, "AABB");      a.halfSize = Vec2.new(18, 28)
+
+function update(dt)
+    local rb = reg:get(player, "RigidBody")
+    if Input.down("right") then rb.velocity.x = 240 end
+    mjv.physics(dt, 0, 1800)       -- le moteur C++ simule TOUTES les entités
+end
+
+function draw()                    -- un "système" de rendu écrit en Lua
+    reg:view2("Transform2D", "RectShape", function(e, t, s)
+        Graphics.rect(t.position.x - s.size.x/2, t.position.y - s.size.y/2,
+                      s.size.x, s.size.y, s.color.r, s.color.g, s.color.b)
+    end)
+end
+```
+
+API ECS exposée : `reg:create/destroy/valid`, `reg:add/get/has/remove(e, "Comp")`,
+`reg:view/view2(...)`, `mjv.physics(dt, gx, gy)`. Composants : `Transform2D`,
+`Velocity`, `RectShape`, `AABB`, `RigidBody`. Le binding (sol2) vit côté
+application — **le cœur `mjv` ne dépend pas de Lua**. À venir : `Sprite`/`Animator`
+et l'audio côté Lua.
 
 ## Écrire un jeu avec le moteur (ECS)
 
@@ -237,7 +269,7 @@ anim.play("idle");
 - [x] **Mini-physique maison** (`RigidBody` + `physicsStep` : gravité, saut, AABB)
 - [x] **Jeu d'exemple complet** : platformer 3 niveaux, ennemis, score (`examples/02_jeu`)
 - [ ] Physique avancée (Box2D : joints, forces, rebonds) — optionnel
-- [x] **Scripting Lua** (sol2) — jeu en `game.lua` sans recompiler ; exposer l'ECS = à venir
+- [x] **Scripting Lua** (sol2) — jeu en `game.lua`, **ECS + physique pilotés en Lua** (`reg:create`, `reg:add`, `reg:view2`, `mjv.physics`)
 - [ ] **Phase 3** : éditeur visuel (Dear ImGui)
 - [ ] **Phase 4** : écosystème (docs, assets, communauté)
 
