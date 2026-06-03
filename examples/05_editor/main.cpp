@@ -53,11 +53,12 @@ public:
 private:
     static Config makeConfig() {
         Config c;
-        c.width = 1380;
-        c.height = 820;
+        c.width = 1600;
+        c.height = 900;
         c.title = "MoteurJV - Editeur";
         c.clearColor = mjv::Color{30, 32, 38, 255};
-        c.maximized = true;   // ouvrir en grand (plein écran fenêtré)
+        c.resizable = true;   // grande fenêtre redimensionnable (sans forcer la
+                              // résolution native, trop lourde pour WSLg)
         return c;
     }
 
@@ -330,6 +331,8 @@ private:
                 ImGui::TextDisabled("Fleches/ZQSD deplacent l'entite selectionnee (Espace = saut si physique)");
             else
                 ImGui::TextDisabled("Selectionne une entite, puis Play");
+            ImGui::SameLine(ImGui::GetWindowWidth() - 90.0f);
+            ImGui::Text("%.0f FPS", ImGui::GetIO().Framerate);
             ImGui::EndMainMenuBar();
         }
     }
