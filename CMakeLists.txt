@@ -22,3 +22,4 @@ FetchContent_MakeAvailable(raylib)
 # --- Le moteur + les exemples --------------------------------------------
 add_subdirectory(engine)
 add_subdirectory(examples/01_perso2d)
+add_subdirectory(examples/02_jeu)

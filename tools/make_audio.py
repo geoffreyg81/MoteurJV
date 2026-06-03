@@ -77,6 +77,10 @@ def sweep(f0, f1, dur, vol=0.4, decay=6.0):
 
 write_wav(os.path.join(assets, "jump.wav"), sweep(320, 720, 0.14))
 
+# --- Pièce ramassée : deux notes claires ascendantes -------------------------
+coin = tone(988, 0.05, vol=0.4, decay=10.0) + tone(1319, 0.10, vol=0.4, decay=8.0)
+write_wav(os.path.join(assets, "coin.wav"), coin)
+
 # --- Musique : courte boucle (basse + mélodie) -------------------------------
 # Notes (Hz). Petite mélodie en La mineur pentatonique.
 A3, C4, D4, E4, G4, A4 = 220.0, 261.63, 293.66, 329.63, 392.0, 440.0

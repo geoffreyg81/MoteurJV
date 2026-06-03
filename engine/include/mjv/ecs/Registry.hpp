@@ -106,6 +106,14 @@ public:
 
     bool valid(Entity e) const { return m_alive.find(e) != m_alive.end(); }
 
+    // Supprime toutes les entités et tous les composants (ex. changement de niveau).
+    void clear() {
+        m_pools.clear();
+        m_alive.clear();
+        m_free.clear();
+        m_next = 0;
+    }
+
     // --- Composants -------------------------------------------------------
     template <class T>
     T& add(Entity e, T comp = T{}) {

@@ -73,8 +73,9 @@ MoteurJV/
 │   │   └── Color.hpp
 │   └── src/                 # implémentations (raylib vit ici, et nulle part ailleurs)
 ├── examples/
-│   └── 01_perso2d/          # la démo : perso animé, collisions, caisses
-│       └── assets/          #   hero_sheet.png (généré), hero.png
+│   ├── 01_perso2d/          # démo technique : perso animé, collisions, physique
+│   │   └── assets/          #   hero_sheet.png (généré), sons (généré)
+│   └── 02_jeu/              # un VRAI petit jeu : platformer 3 niveaux + ennemis
 ├── tools/                   # make_sprite.py (génère les assets), scripts WSL
 ├── build.sh                 # build + run sous Linux/WSL
 ├── build.ps1                # build + run sous Windows natif
@@ -93,7 +94,8 @@ les binaires Linux ne sont pas concernés, et la fenêtre s'affiche via WSLg.
 
 ```bash
 # dans Ubuntu (WSL) :
-./build.sh run
+./build.sh run        # la démo technique (examples/01_perso2d)
+./build.sh run jeu    # le petit jeu : platformer 3 niveaux (examples/02_jeu)
 ```
 
 Dépendances Ubuntu (déjà installées) : `cmake`, `build-essential`,
@@ -116,6 +118,20 @@ Prérequis : **Visual Studio Build Tools 2022** (workload C++, ARM64) + CMake.
 **Commandes :** **Gauche/Droite** (Flèches / ZQSD / WASD) · **Espace** (ou
 Haut/Z/W) pour **sauter** · **Tab** affiche les boîtes de collision · **P**
 coupe/relance la musique.
+
+## Le jeu d'exemple (`examples/02_jeu`)
+
+Un vrai petit **platformer** construit entièrement avec le moteur — la meilleure
+preuve que MoteurJV sert à faire des jeux :
+
+- **3 niveaux** enchaînés, avec sol et plateformes
+- **Ennemis** qui patrouillent : saute sur la tête pour les éliminer (+200),
+  touche-les sur le côté et tu perds une vie
+- **Pièces** à ramasser (+100), **score** et **vies** (3)
+- Écrans **victoire** / **game over** (Entrée pour rejouer)
+
+Commandes : **Gauche/Droite** (Flèches ou ZQSD) · **Espace** pour sauter ·
+**Tab** debug collisions · **P** musique.
 
 ## Écrire un jeu avec le moteur (ECS)
 
@@ -189,6 +205,7 @@ anim.play("idle");
 - [x] **Animation de sprites** (`Animator` + spritesheet : clips `idle`/`walk`)
 - [x] **Audio** (`mjv::Audio`, `Sound`, `Music`) — Phase 2, étape 1
 - [x] **Mini-physique maison** (`RigidBody` + `physicsStep` : gravité, saut, AABB)
+- [x] **Jeu d'exemple complet** : platformer 3 niveaux, ennemis, score (`examples/02_jeu`)
 - [ ] Physique avancée (Box2D : joints, forces, rebonds) — optionnel
 - [ ] **Scripting** (Lua via sol2) — Phase 2, étape 3
 - [ ] **Phase 3** : éditeur visuel (Dear ImGui)
