@@ -147,6 +147,11 @@ inline void bindEngineLua(sol::state& lua, Registry& reg, int sw, int sh) {
                            Color{static_cast<std::uint8_t>(r), static_cast<std::uint8_t>(gg),
                                  static_cast<std::uint8_t>(b), 255});
     });
+    g.set_function("outline", [](float x, float y, float w, float h, int r, int gg, int b) {
+        Graphics::drawRectangleOutlineCentered({x + w / 2.0f, y + h / 2.0f}, {w, h},
+                                               Color{static_cast<std::uint8_t>(r), static_cast<std::uint8_t>(gg),
+                                                     static_cast<std::uint8_t>(b), 255}, 2.0f);
+    });
 
     // --- Entrées ---
     auto in = lua.create_named_table("Input");

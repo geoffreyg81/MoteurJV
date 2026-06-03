@@ -71,13 +71,17 @@ function update(dt)
 end
 
 function draw()
-    -- Dessine toutes les entités qui ont Transform + RectShape (sol, plateformes,
-    -- joueur, caisses) en un seul "système" écrit en Lua.
+    -- Un seul "système" de rendu, écrit en Lua : dessine toutes les entités qui
+    -- ont Transform + RectShape (sol, plateformes, joueur, caisses), avec contour.
     reg:view2("Transform2D", "RectShape", function(e, t, s)
-        Graphics.rect(t.position.x - s.size.x / 2, t.position.y - s.size.y / 2,
-                      s.size.x, s.size.y, s.color.r, s.color.g, s.color.b)
+        local x, y = t.position.x - s.size.x / 2, t.position.y - s.size.y / 2
+        Graphics.rect(x, y, s.size.x, s.size.y, s.color.r, s.color.g, s.color.b)
+        Graphics.outline(x, y, s.size.x, s.size.y, 30, 30, 40)
     end)
 
-    Graphics.text("Scene ECS construite en Lua (entites + physique C++)", 16, 16, 18, 20, 20, 30)
-    Graphics.text("Fleches/ZQSD : bouger   Espace : sauter", 16, 40, 16, 40, 40, 50)
+    -- Légende.
+    Graphics.text("Scene ECS construite ENTIEREMENT en Lua, physique simulee en C++", 16, 14, 18, 20, 20, 30)
+    Graphics.text("Carre rouge = joueur (Fleches/ZQSD + Espace)", 16, 38, 16, 40, 40, 50)
+    Graphics.text("Caisses marron = 5 entites creees en Lua, tombees avec la gravite", 16, 58, 16, 40, 40, 50)
+    Graphics.text("Barres = plateformes statiques", 16, 78, 16, 40, 40, 50)
 end
