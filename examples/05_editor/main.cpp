@@ -1,12 +1,14 @@
-// Exemple 05 — Un éditeur visuel facon Unity pour MoteurJV (Dear ImGui docking).
+// MoteurJV — Éditeur visuel no-code (v1.0).
 //
-//   - thème sombre personnalisé
-//   - layout ancré 3 zones (DockSpace) : Hiérarchie à gauche, Inspecteur à
-//     droite, Assets en bas, Viewport au centre
-//   - le jeu est rendu dans une RenderTexture affichée dans la fenêtre Viewport
-//   - barre de menus Fichier / Édition / Affichage
-//   - clic dans le viewport pour sélectionner, glisser pour déplacer
-//   - sauvegarde / chargement de scène en JSON
+// Construis un jeu ENTIÈREMENT à la souris, sans écrire de code :
+//   - menu "Creer" : Joueur, Plateforme, Caisse, Ennemi (entités prêtes)
+//   - glisse des images depuis le panneau Assets dans la scène
+//   - règle tout dans l'Inspecteur (position, taille, couleur, vitesse, saut…)
+//   - "Play" : la scène devient jouable (gravité, joueur au clavier, ennemis qui
+//     patrouillent, caméra qui suit le joueur). "Stop" restaure la scène d'avant.
+//   - Sauvegarde / charge la scène en JSON.
+//
+// L'éditeur s'appuie uniquement sur l'API publique mjv:: (ECS, physique, rendu).
 
 #include <algorithm>
 #include <cmath>
@@ -19,7 +21,7 @@
 #include <nlohmann/json.hpp>
 
 #include "imgui.h"
-#include "imgui_internal.h" // DockBuilder
+#include "imgui_internal.h"
 #include "rlImGui.h"
 
 #include "mjv/mjv.hpp"
@@ -35,10 +37,15 @@ using namespace mjv;
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
-// Composant propre à l'éditeur : une entité qui affiche une image (asset).
-struct SpriteAsset {
-    std::string path;
-    Vec2 size;
+// --- Composants propres à l'éditeur -----------------------------------------
+struct SpriteAsset { std::string path; Vec2 size; };          // affiche une image
+struct Controllable { float speed = 300.0f; float jumpForce = 820.0f; }; // "joueur"
+struct Patrol {                                               // ennemi va-et-vient
+    float speed = 90.0f;
+    float range = 140.0f;
+    float dir = 1.0f;
+    float originX = 0.0f;
+    bool init = false;
 };
 
 class Editor : public Application {
@@ -57,13 +64,13 @@ private:
         c.height = 900;
         c.title = "MoteurJV - Editeur";
         c.clearColor = mjv::Color{30, 32, 38, 255};
-        c.resizable = true;   // grande fenêtre redimensionnable (sans forcer la
-                              // résolution native, trop lourde pour WSLg)
+        c.resizable = true;
         return c;
     }
 
     static constexpr int kWorldW = 1280;
     static constexpr int kWorldH = 720;
+    static constexpr float kGravity = 1800.0f;
 
     Registry m_reg;
     Entity m_selected = NullEntity;
@@ -72,13 +79,13 @@ private:
     Vec2 m_dragOffset;
     std::string m_status;
     float m_statusTimer = 0.0f;
+    json m_snapshot; // scène sauvegardée au lancement du Play (pour Stop)
 
     ::RenderTexture2D m_target{};
     bool m_layoutInit = false;
-    std::unordered_map<std::string, ::Texture2D> m_thumbs; // miniatures d'images (cache)
-    mjv::Sound m_preview;                                  // son écouté au clic
+    std::unordered_map<std::string, ::Texture2D> m_thumbs;
+    mjv::Sound m_preview;
 
-    // Rectangle écran où le viewport est affiché (pour mapper la souris).
     Vec2 m_vpPos, m_vpSize;
     bool m_vpHovered = false;
 
@@ -90,68 +97,73 @@ private:
         buildScene();
     }
 
-    // ---------------------------------------------------------------- thème
+    // ----------------------------------------------------------------- thème
     void applyDarkTheme() {
         ImGui::StyleColorsDark();
         ImGuiStyle& s = ImGui::GetStyle();
-        s.WindowRounding = 5.0f;
-        s.FrameRounding = 4.0f;
-        s.GrabRounding = 4.0f;
-        s.TabRounding = 4.0f;
-        s.WindowPadding = ImVec2(10, 10);
-        s.FramePadding = ImVec2(8, 4);
-        s.ItemSpacing = ImVec2(8, 6);
+        s.WindowRounding = 5.0f; s.FrameRounding = 4.0f; s.GrabRounding = 4.0f;
+        s.TabRounding = 4.0f; s.WindowPadding = ImVec2(10, 10);
+        s.FramePadding = ImVec2(8, 4); s.ItemSpacing = ImVec2(8, 6);
         s.WindowBorderSize = 0.0f;
-
         ImVec4* c = s.Colors;
-        const ImVec4 bg = ImVec4(0.13f, 0.14f, 0.17f, 1.00f);
-        const ImVec4 panel = ImVec4(0.17f, 0.18f, 0.22f, 1.00f);
-        const ImVec4 accent = ImVec4(0.20f, 0.50f, 0.90f, 1.00f);
+        const ImVec4 bg = ImVec4(0.13f, 0.14f, 0.17f, 1.0f);
+        const ImVec4 panel = ImVec4(0.17f, 0.18f, 0.22f, 1.0f);
+        const ImVec4 accent = ImVec4(0.20f, 0.50f, 0.90f, 1.0f);
         c[ImGuiCol_WindowBg] = bg;
-        c[ImGuiCol_MenuBarBg] = ImVec4(0.10f, 0.11f, 0.13f, 1.00f);
-        c[ImGuiCol_Header] = panel;
-        c[ImGuiCol_HeaderHovered] = ImVec4(0.25f, 0.27f, 0.32f, 1.00f);
+        c[ImGuiCol_MenuBarBg] = ImVec4(0.10f, 0.11f, 0.13f, 1.0f);
+        c[ImGuiCol_Header] = panel; c[ImGuiCol_HeaderHovered] = ImVec4(0.25f, 0.27f, 0.32f, 1.0f);
         c[ImGuiCol_HeaderActive] = accent;
-        c[ImGuiCol_Button] = panel;
-        c[ImGuiCol_ButtonHovered] = ImVec4(0.25f, 0.45f, 0.75f, 1.00f);
+        c[ImGuiCol_Button] = panel; c[ImGuiCol_ButtonHovered] = ImVec4(0.25f, 0.45f, 0.75f, 1.0f);
         c[ImGuiCol_ButtonActive] = accent;
-        c[ImGuiCol_FrameBg] = ImVec4(0.10f, 0.11f, 0.13f, 1.00f);
-        c[ImGuiCol_FrameBgHovered] = ImVec4(0.16f, 0.18f, 0.22f, 1.00f);
-        c[ImGuiCol_Tab] = ImVec4(0.12f, 0.13f, 0.16f, 1.00f);
-        c[ImGuiCol_TabActive] = accent;
-        c[ImGuiCol_TabHovered] = ImVec4(0.25f, 0.45f, 0.75f, 1.00f);
-        c[ImGuiCol_TitleBgActive] = ImVec4(0.12f, 0.13f, 0.16f, 1.00f);
-        c[ImGuiCol_CheckMark] = accent;
-        c[ImGuiCol_SliderGrab] = accent;
+        c[ImGuiCol_FrameBg] = ImVec4(0.10f, 0.11f, 0.13f, 1.0f);
+        c[ImGuiCol_FrameBgHovered] = ImVec4(0.16f, 0.18f, 0.22f, 1.0f);
+        c[ImGuiCol_Tab] = ImVec4(0.12f, 0.13f, 0.16f, 1.0f);
+        c[ImGuiCol_TabActive] = accent; c[ImGuiCol_TabHovered] = ImVec4(0.25f, 0.45f, 0.75f, 1.0f);
+        c[ImGuiCol_TitleBgActive] = ImVec4(0.12f, 0.13f, 0.16f, 1.0f);
+        c[ImGuiCol_CheckMark] = accent; c[ImGuiCol_SliderGrab] = accent;
         c[ImGuiCol_SeparatorHovered] = accent;
     }
 
-    // --------------------------------------------------------------- scène
-    void buildScene() {
-        m_reg.clear();
-        m_selected = NullEntity;
-        spawnSolid({kWorldW * 0.5f, 690.0f}, {kWorldW, 60.0f}, Colors::Green);
-        spawnSolid({340.0f, 540.0f}, {200.0f, 26.0f}, mjv::Color{150, 110, 70, 255});
-        spawnSolid({820.0f, 410.0f}, {200.0f, 26.0f}, mjv::Color{150, 110, 70, 255});
-        Entity hero = spawnBox({240.0f, 200.0f}, {44.0f, 60.0f}, Colors::Red);
-        for (int i = 0; i < 4; ++i)
-            spawnBox({480.0f + i * 70.0f, 120.0f - i * 40.0f}, {40.0f, 40.0f}, mjv::Color{200, 150, 90, 255});
-        m_selected = hero;
-    }
-    Entity spawnSolid(Vec2 cc, Vec2 size, mjv::Color col) {
+    // ----------------------------------------------------------- presets
+    Entity newEntity() {
         Entity e = m_reg.create();
-        m_reg.add<Transform2D>(e, Transform2D{cc});
-        m_reg.add<RectShape>(e, RectShape{size, col});
-        m_reg.add<AABB>(e, AABB{size * 0.5f});
+        m_reg.add<Transform2D>(e, Transform2D{{400.0f, 200.0f}});
+        m_selected = e;
         return e;
     }
-    Entity spawnBox(Vec2 cc, Vec2 size, mjv::Color col) {
-        Entity e = spawnSolid(cc, size, col);
+    Entity spawnPlatform(Vec2 pos) {
+        Entity e = m_reg.create();
+        m_reg.add<Transform2D>(e, Transform2D{pos});
+        m_reg.add<RectShape>(e, RectShape{{220.0f, 28.0f}, mjv::Color{150, 110, 70, 255}});
+        m_reg.add<AABB>(e, AABB{{110.0f, 14.0f}});
+        m_selected = e; setStatus("Plateforme creee"); return e;
+    }
+    Entity spawnCrate(Vec2 pos) {
+        Entity e = m_reg.create();
+        m_reg.add<Transform2D>(e, Transform2D{pos});
+        m_reg.add<RectShape>(e, RectShape{{42.0f, 42.0f}, mjv::Color{200, 150, 90, 255}});
+        m_reg.add<AABB>(e, AABB{{21.0f, 21.0f}});
         m_reg.add<RigidBody>(e, RigidBody{});
-        return e;
+        m_selected = e; setStatus("Caisse creee"); return e;
     }
-
-    // Crée une entité-image à partir d'un asset (clic ou glisser depuis Assets).
+    Entity spawnPlayer(Vec2 pos) {
+        Entity e = m_reg.create();
+        m_reg.add<Transform2D>(e, Transform2D{pos});
+        m_reg.add<RectShape>(e, RectShape{{38.0f, 54.0f}, mjv::Color{80, 170, 240, 255}});
+        m_reg.add<AABB>(e, AABB{{19.0f, 27.0f}});
+        m_reg.add<RigidBody>(e, RigidBody{});
+        m_reg.add<Controllable>(e, Controllable{});
+        m_selected = e; setStatus("Joueur cree (jouable en Play)"); return e;
+    }
+    Entity spawnEnemy(Vec2 pos) {
+        Entity e = m_reg.create();
+        m_reg.add<Transform2D>(e, Transform2D{pos});
+        m_reg.add<RectShape>(e, RectShape{{40.0f, 40.0f}, mjv::Color{220, 70, 70, 255}});
+        m_reg.add<AABB>(e, AABB{{20.0f, 20.0f}});
+        m_reg.add<RigidBody>(e, RigidBody{});
+        m_reg.add<Patrol>(e, Patrol{});
+        m_selected = e; setStatus("Ennemi cree (patrouille en Play)"); return e;
+    }
     Entity spawnSprite(const std::string& path, Vec2 pos) {
         ::Texture2D& t = thumbnail(path);
         const Vec2 size{static_cast<float>(t.width), static_cast<float>(t.height)};
@@ -159,58 +171,96 @@ private:
         m_reg.add<Transform2D>(e, Transform2D{pos});
         m_reg.add<AABB>(e, AABB{size * 0.5f});
         m_reg.add<SpriteAsset>(e, SpriteAsset{path, size});
-        m_selected = e;
-        setStatus("Image ajoutee a la scene");
-        return e;
+        m_selected = e; setStatus("Image ajoutee a la scene"); return e;
     }
 
-    // Demi-tailles d'une entité (pour le clic et le surlignage).
+    // Un petit niveau de départ (qui défile).
+    void buildScene() {
+        m_reg.clear();
+        m_selected = NullEntity;
+        // Sol long.
+        Entity ground = m_reg.create();
+        m_reg.add<Transform2D>(ground, Transform2D{{1300.0f, 690.0f}});
+        m_reg.add<RectShape>(ground, RectShape{{2800.0f, 60.0f}, mjv::Color{0, 170, 90, 255}});
+        m_reg.add<AABB>(ground, AABB{{1400.0f, 30.0f}});
+        // Plateformes.
+        spawnPlatform({420.0f, 520.0f});
+        spawnPlatform({780.0f, 410.0f});
+        spawnPlatform({1150.0f, 500.0f});
+        spawnPlatform({1550.0f, 380.0f});
+        // Caisses, ennemi, joueur.
+        spawnCrate({900.0f, 200.0f});
+        spawnCrate({950.0f, 120.0f});
+        spawnEnemy({1150.0f, 440.0f});
+        spawnPlayer({200.0f, 200.0f});
+    }
+
     Vec2 halfExtents(Entity e) {
         if (m_reg.has<RectShape>(e)) return m_reg.get<RectShape>(e).size * 0.5f;
         if (m_reg.has<AABB>(e))      return m_reg.get<AABB>(e).halfSize;
         return {20.0f, 20.0f};
     }
 
-    // --------------------------------------------------------------- update
+    // ----------------------------------------------------------- Play/Stop
+    void play() {
+        m_snapshot = sceneToJson();
+        m_playing = true;
+        setStatus("Lecture - Stop pour revenir a l'edition");
+    }
+    void stop() {
+        m_playing = false;
+        jsonToScene(m_snapshot);
+        setStatus("Edition");
+    }
+
+    bool firstPlayer(Vec2& out) {
+        bool found = false;
+        m_reg.view<Controllable, Transform2D>([&](Entity, Controllable&, Transform2D& t) {
+            if (!found) { out = t.position; found = true; }
+        });
+        return found;
+    }
+
+    // ----------------------------------------------------------- systèmes (Play)
+    void controlSystem() {
+        if (ImGui::GetIO().WantCaptureKeyboard) return;
+        const int L = (Input::isDown(Key::Left)  || Input::isDown(Key::A) || Input::isDown(Key::Q)) ? 1 : 0;
+        const int R = (Input::isDown(Key::Right) || Input::isDown(Key::D)) ? 1 : 0;
+        const bool jump = Input::isPressed(Key::Space) || Input::isPressed(Key::Up) ||
+                          Input::isPressed(Key::W) || Input::isPressed(Key::Z);
+        m_reg.view<Controllable, RigidBody>([&](Entity, Controllable& ctrl, RigidBody& rb) {
+            rb.velocity.x = static_cast<float>(R - L) * ctrl.speed;
+            if (jump && rb.onGround) rb.velocity.y = -ctrl.jumpForce;
+        });
+    }
+    void patrolSystem(float dt) {
+        m_reg.view<Patrol, Transform2D>([&](Entity e, Patrol& p, Transform2D& t) {
+            if (!p.init) { p.originX = t.position.x; p.init = true; }
+            if (t.position.x > p.originX + p.range) p.dir = -1.0f;
+            if (t.position.x < p.originX - p.range) p.dir = 1.0f;
+            if (m_reg.has<RigidBody>(e)) m_reg.get<RigidBody>(e).velocity.x = p.dir * p.speed;
+            else                         t.position.x += p.dir * p.speed * dt;
+        });
+    }
+
+    // ----------------------------------------------------------------- update
     void onUpdate(float dt) override {
         if (m_statusTimer > 0.0f) m_statusTimer -= dt;
-        handleViewportInteraction(); // utilise le rect viewport de la frame précédente
+        if (!m_playing) handleViewportInteraction();
 
         if (m_playing) {
-            // En Play, l'entite SELECTIONNEE est pilotable, qu'elle ait un corps
-            // physique ou non (sauf si ImGui capture le clavier).
-            if (!ImGui::GetIO().WantCaptureKeyboard && m_reg.valid(m_selected) && m_reg.has<Transform2D>(m_selected)) {
-                const int L = (Input::isDown(Key::Left)  || Input::isDown(Key::A) || Input::isDown(Key::Q)) ? 1 : 0;
-                const int R = (Input::isDown(Key::Right) || Input::isDown(Key::D)) ? 1 : 0;
-                const int U = (Input::isDown(Key::Up)    || Input::isDown(Key::W) || Input::isDown(Key::Z)) ? 1 : 0;
-                const int D = (Input::isDown(Key::Down)  || Input::isDown(Key::S)) ? 1 : 0;
-                if (m_reg.has<RigidBody>(m_selected)) {
-                    RigidBody& rb = m_reg.get<RigidBody>(m_selected);
-                    rb.velocity.x = static_cast<float>(R - L) * 260.0f; // controle physique
-                    const bool jump = Input::isPressed(Key::Space) || Input::isPressed(Key::Up) ||
-                                      Input::isPressed(Key::W) || Input::isPressed(Key::Z);
-                    if (jump && rb.onGround) rb.velocity.y = -760.0f;
-                } else {
-                    // Deplacement libre (kinematique) : image / decor sans physique.
-                    Transform2D& t = m_reg.get<Transform2D>(m_selected);
-                    const float sp = 260.0f * dt;
-                    t.position.x += static_cast<float>(R - L) * sp;
-                    t.position.y += static_cast<float>(D - U) * sp;
-                }
-            }
-            physicsStep(m_reg, std::min(dt, 0.033f), {0.0f, 1800.0f});
+            controlSystem();
+            patrolSystem(dt);
+            physicsStep(m_reg, std::min(dt, 0.033f), {0.0f, kGravity});
         }
-
         renderSceneToTexture();
     }
 
-    // Convertit une position écran en coordonnées "monde" (dans la RenderTexture).
     Vec2 screenToWorld(Vec2 s) const {
         if (m_vpSize.x <= 0.0f || m_vpSize.y <= 0.0f) return s;
         return {(s.x - m_vpPos.x) * (kWorldW / m_vpSize.x),
                 (s.y - m_vpPos.y) * (kWorldH / m_vpSize.y)};
     }
-
     Entity pickEntity(Vec2 p) {
         Entity hit = NullEntity;
         m_reg.view<Transform2D>([&](Entity e, Transform2D& tr) {
@@ -219,18 +269,12 @@ private:
         });
         return hit;
     }
-
     void handleViewportInteraction() {
         if (!m_vpHovered) { if (Input::mouseReleased(Mouse::Left)) m_dragging = false; return; }
         const Vec2 w = screenToWorld(Input::mousePosition());
-
         if (Input::mousePressed(Mouse::Left)) {
             const Entity hit = pickEntity(w);
-            if (hit != NullEntity) {
-                m_selected = hit;
-                m_dragging = true;
-                m_dragOffset = m_reg.get<Transform2D>(hit).position - w;
-            }
+            if (hit != NullEntity) { m_selected = hit; m_dragging = true; m_dragOffset = m_reg.get<Transform2D>(hit).position - w; }
         }
         if (m_dragging && Input::mouseDown(Mouse::Left) && m_reg.valid(m_selected) && m_reg.has<Transform2D>(m_selected)) {
             m_reg.get<Transform2D>(m_selected).position = w + m_dragOffset;
@@ -242,28 +286,36 @@ private:
     void renderSceneToTexture() {
         BeginTextureMode(m_target);
         Graphics::clear(Colors::SkyBlue);
-        // Formes (sol, plateformes, caisses).
+
+        ::Camera2D cam{};
+        cam.zoom = 1.0f;
+        bool useCam = false;
+        if (m_playing) {
+            Vec2 p;
+            if (firstPlayer(p)) { cam.target = {p.x, p.y}; cam.offset = {kWorldW * 0.5f, kWorldH * 0.5f}; useCam = true; }
+        }
+        if (useCam) BeginMode2D(cam);
+
         m_reg.view<Transform2D, RectShape>([&](Entity, Transform2D& tr, RectShape& s) {
             Graphics::drawRectangleCentered(tr.position, s.size, s.color, tr.rotation);
             Graphics::drawRectangleOutlineCentered(tr.position, s.size, mjv::Color{20, 20, 28, 255}, 1.5f);
         });
-        // Images (assets déposés dans la scène).
         m_reg.view<Transform2D, SpriteAsset>([&](Entity, Transform2D& tr, SpriteAsset& sp) {
             ::Texture2D& t = thumbnail(sp.path);
             const ::Rectangle src{0, 0, static_cast<float>(t.width), static_cast<float>(t.height)};
             const ::Rectangle dst{tr.position.x, tr.position.y, sp.size.x * tr.scale.x, sp.size.y * tr.scale.y};
             DrawTexturePro(t, src, dst, ::Vector2{dst.width * 0.5f, dst.height * 0.5f}, tr.rotation, ::WHITE);
         });
-        // Surlignage de la sélection.
-        if (m_reg.valid(m_selected) && m_reg.has<Transform2D>(m_selected)) {
+        if (!m_playing && m_reg.valid(m_selected) && m_reg.has<Transform2D>(m_selected)) {
             const Vec2 h = halfExtents(m_selected);
             Graphics::drawRectangleOutlineCentered(m_reg.get<Transform2D>(m_selected).position,
                                                    h * 2.0f + Vec2{8, 8}, Colors::Yellow, 2.5f);
         }
+        if (useCam) EndMode2D();
         EndTextureMode();
     }
 
-    // --------------------------------------------------------------- render
+    // ----------------------------------------------------------------- UI
     void onRender() override {
         rlImGuiBegin();
         drawMenuBar();
@@ -305,32 +357,30 @@ private:
                 if (ImGui::MenuItem("Quitter")) std::exit(0);
                 ImGui::EndMenu();
             }
-            if (ImGui::BeginMenu("Edition")) {
-                if (ImGui::MenuItem("Nouvelle entite")) {
-                    Entity e = m_reg.create();
-                    m_reg.add<Transform2D>(e, Transform2D{{kWorldW * 0.5f, 300.0f}});
-                    m_reg.add<RectShape>(e, RectShape{{40.0f, 40.0f}, Colors::Blue});
-                    m_selected = e;
-                }
-                if (ImGui::MenuItem("Supprimer la selection", nullptr, false, m_reg.valid(m_selected))) {
-                    m_reg.destroy(m_selected);
-                    m_selected = NullEntity;
-                }
+            if (ImGui::BeginMenu("Creer")) {
+                if (ImGui::MenuItem("Joueur"))     spawnPlayer({250.0f, 200.0f});
+                if (ImGui::MenuItem("Plateforme")) spawnPlatform({400.0f, 350.0f});
+                if (ImGui::MenuItem("Caisse"))     spawnCrate({450.0f, 150.0f});
+                if (ImGui::MenuItem("Ennemi"))     spawnEnemy({500.0f, 200.0f});
+                ImGui::Separator();
+                if (ImGui::MenuItem("Entite vide")) newEntity();
                 ImGui::EndMenu();
             }
-            if (ImGui::BeginMenu("Affichage")) {
-                ImGui::MenuItem("Lecture (physique)", nullptr, &m_playing);
+            if (ImGui::BeginMenu("Edition")) {
+                if (ImGui::MenuItem("Supprimer la selection", "Suppr", false, m_reg.valid(m_selected))) {
+                    m_reg.destroy(m_selected); m_selected = NullEntity;
+                }
                 ImGui::EndMenu();
             }
             ImGui::Separator();
-            if (ImGui::Button(m_playing ? " Pause " : " Play ")) m_playing = !m_playing;
+            if (ImGui::Button(m_playing ? " Stop " : " Play ")) { m_playing ? stop() : play(); }
             ImGui::SameLine();
             if (m_statusTimer > 0.0f)
                 ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.6f, 1.0f), "%s", m_status.c_str());
             else if (m_playing)
-                ImGui::TextDisabled("Fleches/ZQSD deplacent l'entite selectionnee (Espace = saut si physique)");
+                ImGui::TextDisabled("Fleches/ZQSD : bouger   Espace : sauter   (Stop pour editer)");
             else
-                ImGui::TextDisabled("Selectionne une entite, puis Play");
+                ImGui::TextDisabled("Menu Creer pour ajouter - glisse une image depuis Assets - Play pour jouer");
             ImGui::SameLine(ImGui::GetWindowWidth() - 90.0f);
             ImGui::Text("%.0f FPS", ImGui::GetIO().Framerate);
             ImGui::EndMainMenuBar();
@@ -346,7 +396,6 @@ private:
         m_vpPos = {mn.x, mn.y};
         m_vpSize = {mx.x - mn.x, mx.y - mn.y};
         m_vpHovered = ImGui::IsItemHovered();
-        // Déposer une image depuis le panneau Assets pour l'ajouter à la scène.
         if (ImGui::BeginDragDropTarget()) {
             if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("ASSET_IMG")) {
                 const std::string path(static_cast<const char*>(pl->Data));
@@ -358,194 +407,176 @@ private:
         ImGui::PopStyleVar();
     }
 
+    std::string componentSummary(Entity e) {
+        std::string s = "  [";
+        if (m_reg.has<Controllable>(e)) s += "J";
+        if (m_reg.has<Patrol>(e))       s += "E";
+        if (m_reg.has<RigidBody>(e))    s += "P";
+        if (m_reg.has<SpriteAsset>(e))  s += "S";
+        if (m_reg.has<RectShape>(e))    s += "R";
+        return s + "]";
+    }
+
     void drawHierarchy() {
         ImGui::Begin("Hierarchie");
         const std::vector<Entity> ents = m_reg.entities();
         ImGui::TextDisabled("%d entites", static_cast<int>(ents.size()));
         ImGui::Separator();
         for (Entity e : ents) {
-            const std::string label = "Entite " + std::to_string(e) + componentSummary(e);
+            std::string label = "Entite " + std::to_string(e) + componentSummary(e);
             if (ImGui::Selectable(label.c_str(), e == m_selected)) m_selected = e;
         }
         ImGui::End();
     }
 
-    std::string componentSummary(Entity e) {
-        std::string s = "  [";
-        if (m_reg.has<Transform2D>(e)) s += "T";
-        if (m_reg.has<RectShape>(e))   s += "R";
-        if (m_reg.has<RigidBody>(e))   s += "P";
-        if (m_reg.has<AABB>(e))        s += "B";
-        if (m_reg.has<Velocity>(e))    s += "V";
-        if (m_reg.has<SpriteAsset>(e)) s += "S";
-        return s + "]";
-    }
-
     void drawInspector() {
         ImGui::Begin("Inspecteur");
-        if (m_selected == NullEntity || !m_reg.valid(m_selected)) {
+        if (!m_reg.valid(m_selected)) {
             ImGui::TextDisabled("Aucune entite selectionnee.");
+            ImGui::TextDisabled("Menu 'Creer', ou clique une entite.");
             ImGui::End();
             return;
         }
         ImGui::Text("Entite %u", m_selected);
         ImGui::SameLine();
-        if (ImGui::SmallButton("Supprimer")) {
-            m_reg.destroy(m_selected);
-            m_selected = NullEntity;
-            ImGui::End();
-            return;
-        }
+        if (ImGui::SmallButton("Supprimer")) { m_reg.destroy(m_selected); m_selected = NullEntity; ImGui::End(); return; }
         ImGui::Separator();
 
-        if (m_reg.has<Transform2D>(m_selected) && ImGui::CollapsingHeader("Transform2D", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (m_reg.has<Transform2D>(m_selected) && ImGui::CollapsingHeader("Position / taille", ImGuiTreeNodeFlags_DefaultOpen)) {
             Transform2D& t = m_reg.get<Transform2D>(m_selected);
             ImGui::DragFloat2("position", &t.position.x, 1.0f);
             ImGui::DragFloat("rotation", &t.rotation, 0.5f);
             ImGui::DragFloat2("echelle", &t.scale.x, 0.01f);
         }
-        if (m_reg.has<RectShape>(m_selected) && ImGui::CollapsingHeader("RectShape", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (m_reg.has<RectShape>(m_selected) && ImGui::CollapsingHeader("Apparence (rectangle)", ImGuiTreeNodeFlags_DefaultOpen)) {
             RectShape& r = m_reg.get<RectShape>(m_selected);
             ImGui::DragFloat2("taille", &r.size.x, 1.0f, 1.0f, 4000.0f);
             float col[3] = {r.color.r / 255.0f, r.color.g / 255.0f, r.color.b / 255.0f};
             if (ImGui::ColorEdit3("couleur", col)) {
-                r.color.r = static_cast<std::uint8_t>(col[0] * 255);
-                r.color.g = static_cast<std::uint8_t>(col[1] * 255);
-                r.color.b = static_cast<std::uint8_t>(col[2] * 255);
+                r.color.r = (std::uint8_t)(col[0] * 255); r.color.g = (std::uint8_t)(col[1] * 255); r.color.b = (std::uint8_t)(col[2] * 255);
             }
         }
-        if (m_reg.has<RigidBody>(m_selected) && ImGui::CollapsingHeader("RigidBody", ImGuiTreeNodeFlags_DefaultOpen)) {
-            RigidBody& rb = m_reg.get<RigidBody>(m_selected);
-            ImGui::DragFloat2("velocite", &rb.velocity.x, 1.0f);
-            ImGui::DragFloat("gravityScale", &rb.gravityScale, 0.05f);
+        if (m_reg.has<SpriteAsset>(m_selected) && ImGui::CollapsingHeader("Image", ImGuiTreeNodeFlags_DefaultOpen)) {
+            SpriteAsset& sp = m_reg.get<SpriteAsset>(m_selected);
+            ImGui::TextWrapped("%s", sp.path.c_str());
+            ImGui::DragFloat2("taille", &sp.size.x, 1.0f, 1.0f, 4000.0f);
         }
-        if (m_reg.has<AABB>(m_selected) && ImGui::CollapsingHeader("AABB", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::DragFloat2("demi-taille", &m_reg.get<AABB>(m_selected).halfSize.x, 1.0f, 1.0f, 4000.0f);
+        if (m_reg.has<RigidBody>(m_selected) && ImGui::CollapsingHeader("Physique (RigidBody)", ImGuiTreeNodeFlags_DefaultOpen)) {
+            RigidBody& rb = m_reg.get<RigidBody>(m_selected);
+            ImGui::DragFloat("gravite x echelle", &rb.gravityScale, 0.05f);
+        }
+        if (m_reg.has<Controllable>(m_selected) && ImGui::CollapsingHeader("Joueur (controle clavier)", ImGuiTreeNodeFlags_DefaultOpen)) {
+            Controllable& cc = m_reg.get<Controllable>(m_selected);
+            ImGui::DragFloat("vitesse", &cc.speed, 2.0f, 0.0f, 1000.0f);
+            ImGui::DragFloat("force de saut", &cc.jumpForce, 5.0f, 0.0f, 2000.0f);
+        }
+        if (m_reg.has<Patrol>(m_selected) && ImGui::CollapsingHeader("Ennemi (patrouille)", ImGuiTreeNodeFlags_DefaultOpen)) {
+            Patrol& p = m_reg.get<Patrol>(m_selected);
+            ImGui::DragFloat("vitesse", &p.speed, 1.0f, 0.0f, 600.0f);
+            ImGui::DragFloat("portee", &p.range, 1.0f, 0.0f, 1200.0f);
         }
 
         ImGui::Separator();
-        ImGui::TextDisabled("Ajouter un composant :");
-        if (!m_reg.has<RigidBody>(m_selected) && ImGui::Button("+ RigidBody")) m_reg.add<RigidBody>(m_selected);
-        if (!m_reg.has<AABB>(m_selected)      && ImGui::Button("+ AABB"))      m_reg.add<AABB>(m_selected);
-        if (!m_reg.has<Velocity>(m_selected)  && ImGui::Button("+ Velocity"))  m_reg.add<Velocity>(m_selected);
+        ImGui::TextDisabled("Ajouter un comportement :");
+        if (!m_reg.has<RigidBody>(m_selected)    && ImGui::Button("+ Physique"))  m_reg.add<RigidBody>(m_selected);
+        ImGui::SameLine();
+        if (!m_reg.has<Controllable>(m_selected) && ImGui::Button("+ Joueur"))    { m_reg.add<Controllable>(m_selected); if (!m_reg.has<RigidBody>(m_selected)) m_reg.add<RigidBody>(m_selected); }
+        ImGui::SameLine();
+        if (!m_reg.has<Patrol>(m_selected)       && ImGui::Button("+ Ennemi"))    { m_reg.add<Patrol>(m_selected); if (!m_reg.has<RigidBody>(m_selected)) m_reg.add<RigidBody>(m_selected); }
+        if (!m_reg.has<RectShape>(m_selected)     && ImGui::Button("+ Rectangle")) m_reg.add<RectShape>(m_selected, RectShape{{40, 40}, Colors::Blue});
+        if (!m_reg.has<AABB>(m_selected)          && ImGui::Button("+ Collision")) m_reg.add<AABB>(m_selected, AABB{halfExtents(m_selected)});
         ImGui::End();
     }
 
-    // Charge (et met en cache) la miniature d'une image.
     ::Texture2D& thumbnail(const std::string& path) {
         auto it = m_thumbs.find(path);
         if (it != m_thumbs.end()) return it->second;
-        ::Texture2D tex = LoadTexture(path.c_str());
-        return m_thumbs.emplace(path, tex).first->second;
+        return m_thumbs.emplace(path, LoadTexture(path.c_str())).first->second;
     }
 
     void drawAssets() {
         ImGui::Begin("Assets");
-        ImGui::TextDisabled("Dossier : %s   (clique un son pour l'ecouter)", MJV_ASSET_DIR);
+        ImGui::TextDisabled("Glisse une image dans la scene, ou clique un son pour l'ecouter");
         ImGui::Separator();
         std::error_code ec;
         const fs::path dir(MJV_ASSET_DIR);
         if (!fs::exists(dir, ec)) { ImGui::TextDisabled("(dossier introuvable)"); ImGui::End(); return; }
-
-        const float cell = 92.0f; // largeur d'une tuile d'asset
-        float avail = ImGui::GetContentRegionAvail().x;
-        int perRow = std::max(1, static_cast<int>(avail / cell));
+        const float cell = 92.0f;
+        const int perRow = std::max(1, static_cast<int>(ImGui::GetContentRegionAvail().x / cell));
         int i = 0;
         for (const fs::directory_entry& f : fs::directory_iterator(dir, ec)) {
             if (!f.is_regular_file()) continue;
             const std::string path = f.path().string();
             const std::string name = f.path().filename().string();
             const std::string ext = f.path().extension().string();
-
             ImGui::BeginGroup();
             if (ext == ".png" || ext == ".jpg") {
                 ::Texture2D& t = thumbnail(path);
-                if (rlImGuiImageButtonSize(name.c_str(), &t, ::Vector2{64, 64}))
-                    spawnSprite(path, {kWorldW * 0.5f, kWorldH * 0.5f}); // clic = ajoute au centre
+                if (rlImGuiImageButtonSize(name.c_str(), &t, ::Vector2{64, 64})) spawnSprite(path, {kWorldW * 0.5f, kWorldH * 0.5f});
                 if (ImGui::BeginDragDropSource()) {
                     ImGui::SetDragDropPayload("ASSET_IMG", path.c_str(), path.size() + 1);
-                    rlImGuiImageSize(&t, 48, 48);
-                    ImGui::Text("%s", name.c_str());
+                    rlImGuiImageSize(&t, 48, 48); ImGui::Text("%s", name.c_str());
                     ImGui::EndDragDropSource();
                 }
             } else if (ext == ".wav" || ext == ".ogg" || ext == ".mp3") {
-                if (ImGui::Button((">##" + name).c_str(), ImVec2(64, 64))) {
-                    if (m_preview.load(path)) m_preview.play(); // écoute
-                }
-            } else if (ext == ".lua") {
-                ImGui::Button(("Lua##" + name).c_str(), ImVec2(64, 64));
+                if (ImGui::Button((">##" + name).c_str(), ImVec2(64, 64))) { if (m_preview.load(path)) m_preview.play(); }
             } else {
                 ImGui::Button(("?##" + name).c_str(), ImVec2(64, 64));
             }
             ImGui::TextWrapped("%s", name.c_str());
             ImGui::EndGroup();
-
             if (++i % perRow != 0) ImGui::SameLine();
         }
         ImGui::End();
     }
 
-    // ------------------------------------------------------------- JSON I/O
+    // ------------------------------------------------------------- JSON
     static json vecToJ(Vec2 v) { return json::array({v.x, v.y}); }
     static Vec2 jToVec(const json& j) { return {j[0].get<float>(), j[1].get<float>()}; }
     std::string scenePath() const { return std::string(MJV_EDITOR_DIR) + "/scene.json"; }
 
-    void saveScene() {
-        json doc;
-        doc["entities"] = json::array();
+    json sceneToJson() {
+        json doc; doc["entities"] = json::array();
         for (Entity e : m_reg.entities()) {
             json je;
-            if (m_reg.has<Transform2D>(e)) {
-                Transform2D& t = m_reg.get<Transform2D>(e);
-                je["Transform2D"] = {{"position", vecToJ(t.position)}, {"rotation", t.rotation}, {"scale", vecToJ(t.scale)}};
-            }
-            if (m_reg.has<RectShape>(e)) {
-                RectShape& r = m_reg.get<RectShape>(e);
-                je["RectShape"] = {{"size", vecToJ(r.size)}, {"color", json::array({r.color.r, r.color.g, r.color.b})}};
-            }
-            if (m_reg.has<RigidBody>(e)) je["RigidBody"] = {{"gravityScale", m_reg.get<RigidBody>(e).gravityScale}};
-            if (m_reg.has<AABB>(e))      je["AABB"] = {{"halfSize", vecToJ(m_reg.get<AABB>(e).halfSize)}};
-            if (m_reg.has<Velocity>(e))  je["Velocity"] = {{"value", vecToJ(m_reg.get<Velocity>(e).value)}};
-            if (m_reg.has<SpriteAsset>(e)) {
-                SpriteAsset& sp = m_reg.get<SpriteAsset>(e);
-                je["SpriteAsset"] = {{"path", sp.path}, {"size", vecToJ(sp.size)}};
-            }
+            if (m_reg.has<Transform2D>(e)) { Transform2D& t = m_reg.get<Transform2D>(e); je["Transform2D"] = {{"position", vecToJ(t.position)}, {"rotation", t.rotation}, {"scale", vecToJ(t.scale)}}; }
+            if (m_reg.has<RectShape>(e))   { RectShape& r = m_reg.get<RectShape>(e); je["RectShape"] = {{"size", vecToJ(r.size)}, {"color", json::array({r.color.r, r.color.g, r.color.b})}}; }
+            if (m_reg.has<AABB>(e))        je["AABB"] = {{"halfSize", vecToJ(m_reg.get<AABB>(e).halfSize)}};
+            if (m_reg.has<RigidBody>(e))   je["RigidBody"] = {{"gravityScale", m_reg.get<RigidBody>(e).gravityScale}};
+            if (m_reg.has<Controllable>(e)){ Controllable& c = m_reg.get<Controllable>(e); je["Controllable"] = {{"speed", c.speed}, {"jumpForce", c.jumpForce}}; }
+            if (m_reg.has<Patrol>(e))      { Patrol& p = m_reg.get<Patrol>(e); je["Patrol"] = {{"speed", p.speed}, {"range", p.range}}; }
+            if (m_reg.has<SpriteAsset>(e)) { SpriteAsset& sp = m_reg.get<SpriteAsset>(e); je["SpriteAsset"] = {{"path", sp.path}, {"size", vecToJ(sp.size)}}; }
             doc["entities"].push_back(je);
         }
-        std::ofstream f(scenePath());
-        if (f) { f << doc.dump(2); setStatus("Scene sauvegardee"); } else setStatus("Echec sauvegarde");
+        return doc;
     }
 
+    void jsonToScene(const json& doc) {
+        m_reg.clear(); m_selected = NullEntity;
+        if (!doc.contains("entities")) return;
+        for (const json& je : doc["entities"]) {
+            Entity e = m_reg.create();
+            if (je.contains("Transform2D")) { const json& j = je["Transform2D"]; m_reg.add<Transform2D>(e, Transform2D{jToVec(j["position"]), j["rotation"].get<float>(), jToVec(j["scale"])}); }
+            if (je.contains("RectShape"))   { const json& j = je["RectShape"]; const json& c = j["color"]; m_reg.add<RectShape>(e, RectShape{jToVec(j["size"]), mjv::Color{c[0].get<std::uint8_t>(), c[1].get<std::uint8_t>(), c[2].get<std::uint8_t>(), 255}}); }
+            if (je.contains("AABB"))        m_reg.add<AABB>(e, AABB{jToVec(je["AABB"]["halfSize"])});
+            if (je.contains("RigidBody"))   { RigidBody rb; rb.gravityScale = je["RigidBody"]["gravityScale"].get<float>(); m_reg.add<RigidBody>(e, rb); }
+            if (je.contains("Controllable")){ const json& j = je["Controllable"]; m_reg.add<Controllable>(e, Controllable{j["speed"].get<float>(), j["jumpForce"].get<float>()}); }
+            if (je.contains("Patrol"))      { const json& j = je["Patrol"]; Patrol p; p.speed = j["speed"].get<float>(); p.range = j["range"].get<float>(); m_reg.add<Patrol>(e, p); }
+            if (je.contains("SpriteAsset")) { const json& j = je["SpriteAsset"]; m_reg.add<SpriteAsset>(e, SpriteAsset{j["path"].get<std::string>(), jToVec(j["size"])}); }
+        }
+    }
+
+    void saveScene() {
+        std::ofstream f(scenePath());
+        if (f) { f << sceneToJson().dump(2); setStatus("Scene sauvegardee"); } else setStatus("Echec sauvegarde");
+    }
     void loadScene() {
         std::ifstream f(scenePath());
         if (!f) { setStatus("Aucun scene.json"); return; }
         json doc;
         try { f >> doc; } catch (...) { setStatus("scene.json invalide"); return; }
-        m_reg.clear();
-        m_selected = NullEntity;
-        for (const json& je : doc["entities"]) {
-            Entity e = m_reg.create();
-            if (je.contains("Transform2D")) {
-                const json& j = je["Transform2D"];
-                m_reg.add<Transform2D>(e, Transform2D{jToVec(j["position"]), j["rotation"].get<float>(), jToVec(j["scale"])});
-            }
-            if (je.contains("RectShape")) {
-                const json& j = je["RectShape"];
-                const json& c = j["color"];
-                m_reg.add<RectShape>(e, RectShape{jToVec(j["size"]),
-                    mjv::Color{c[0].get<std::uint8_t>(), c[1].get<std::uint8_t>(), c[2].get<std::uint8_t>(), 255}});
-            }
-            if (je.contains("RigidBody")) { RigidBody rb; rb.gravityScale = je["RigidBody"]["gravityScale"].get<float>(); m_reg.add<RigidBody>(e, rb); }
-            if (je.contains("AABB"))      m_reg.add<AABB>(e, AABB{jToVec(je["AABB"]["halfSize"])});
-            if (je.contains("Velocity"))  m_reg.add<Velocity>(e, Velocity{jToVec(je["Velocity"]["value"])});
-            if (je.contains("SpriteAsset")) {
-                const json& j = je["SpriteAsset"];
-                m_reg.add<SpriteAsset>(e, SpriteAsset{j["path"].get<std::string>(), jToVec(j["size"])});
-            }
-        }
-        setStatus("Scene chargee");
+        jsonToScene(doc); setStatus("Scene chargee");
     }
-
     void setStatus(const std::string& s) { m_status = s; m_statusTimer = 3.0f; }
 };
 

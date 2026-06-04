@@ -2,12 +2,12 @@
 
 Un moteur de jeu 2D open source, léger et moderne — en C++.
 
-> État : **v0.9**. Moteur 2D complet : boucle de jeu, **ECS**, rendu, input
-> (clavier + souris), **collisions AABB**, **sprites animés**, **audio**,
-> **mini-physique** (gravité + saut), **scripting Lua** (ECS exposé) et un
-> **éditeur visuel façon Unity** (hiérarchie, inspecteur live, viewport,
-> glisser-déposer d'assets, sauvegarde JSON). Démos : un platformer jouable,
-> des jeux écrits en Lua, et l'éditeur.
+> État : **v1.0** 🎉 — Moteur 2D complet avec un **éditeur visuel no-code** : on
+> construit ET on joue un jeu **entièrement à la souris, sans écrire de code**.
+> Sous le capot : **ECS**, rendu, input (clavier + souris), **collisions AABB**,
+> **sprites animés**, **audio**, **mini-physique** (gravité + saut), **scripting
+> Lua** (ECS exposé) et l'**éditeur façon Unity** (hiérarchie, inspecteur live,
+> viewport, glisser-déposer d'assets, caméra, Play/Stop, sauvegarde JSON).
 
 ## Philosophie
 
@@ -150,10 +150,19 @@ Commandes : **Gauche/Droite** (Flèches ou ZQSD) · **Espace** pour sauter ·
 ## Éditeur visuel (`examples/05_editor`)
 
 Un éditeur **Dear ImGui** (branche docking + backend [rlImGui](https://github.com/raylib-extras/rlImGui),
-le tout récupéré par CMake) avec un look **facon Unity** : thème sombre
-personnalisé, **layout ancré (DockSpace)** à 3 zones, barre de menus
-Fichier/Édition/Affichage, et le jeu rendu dans une **RenderTexture** affichée
-dans une fenêtre Viewport centrale.
+le tout récupéré par CMake) avec un look **facon Unity**, et surtout **no-code** :
+tu construis et tu joues un jeu sans écrire une ligne.
+
+**Le flux sans code :**
+1. Menu **Créer** → *Joueur*, *Plateforme*, *Caisse*, *Ennemi* (entités prêtes à l'emploi)
+2. Place-les à la souris, règle tout dans l'**Inspecteur** (taille, couleur, vitesse, saut, portée…)
+3. Glisse une **image** depuis Assets pour l'ajouter à la scène
+4. Appuie sur **Play** : ça devient un vrai jeu — gravité, **joueur au clavier**,
+   **ennemis qui patrouillent**, **caméra qui suit le joueur**. **Stop** restaure la scène.
+5. **Sauvegarde** la scène en JSON
+
+Détails techniques : thème sombre custom, **layout ancré (DockSpace)** 3 zones, le
+jeu rendu dans une **RenderTexture** affichée dans le Viewport, caméra 2D de suivi.
 
 - **Hiérarchie** (gauche) : liste toutes les entités du `Registry`, cliquables
 - **Inspecteur** (droite) : édite **en temps réel** les composants de l'entité
@@ -307,6 +316,9 @@ anim.play("idle");
 - [x] **Scripting Lua** (sol2) — jeu en `game.lua`, **ECS + physique pilotés en Lua** (`reg:create`, `reg:add`, `reg:view2`, `mjv.physics`)
 - [x] **Phase 3** : éditeur Dear ImGui — hiérarchie, inspecteur live, viewport
   cliquable + glisser souris, **glisser-déposer d'assets**, sauvegarde/chargement JSON
+- [x] **v1.0 — Éditeur no-code** : menu Créer (joueur/plateforme/caisse/ennemi),
+  composants `Controllable`/`Patrol`, caméra de suivi, **Play/Stop** (bac à sable) —
+  on construit et on joue un jeu **sans écrire de code**
 - [ ] **Phase 4** : écosystème (docs, assets, communauté) — *en cours*
 
 ## Idées de fonctionnalités futures
