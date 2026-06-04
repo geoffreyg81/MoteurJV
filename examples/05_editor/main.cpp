@@ -47,6 +47,18 @@ struct Patrol {                                               // ennemi va-et-vi
     float originX = 0.0f;
     bool init = false;
 };
+struct AnimSprite {                                           // sprite animé (spritesheet)
+    std::string path;
+    int frameW = 48, frameH = 64;
+    int idleRow = 0, idleFrames = 2;
+    int walkRow = 1, walkFrames = 4;
+    float frameTime = 0.12f;
+    // runtime :
+    int frame = 0;
+    float timer = 0.0f;
+    bool walking = false;
+    bool faceLeft = false;
+};
 struct Collectible { int points = 100; };                     // pièce à ramasser
 struct Goal {};                                               // objectif = fin de niveau
 struct Health { int lives = 3; };                             // vies du joueur
@@ -192,12 +204,16 @@ private:
         m_selected = e; setStatus("Tuile creee"); return e;
     }
     Entity spawnPlayer(Vec2 pos) {
-        Entity e = makeSpriteEntity("player.png", pos);
-        m_reg.add<AABB>(e, AABB{m_reg.get<SpriteAsset>(e).size * 0.5f});
+        Entity e = m_reg.create();
+        m_reg.add<Transform2D>(e, Transform2D{pos});
+        AnimSprite a; a.path = assetPath("hero_sheet.png");
+        a.frameW = 48; a.frameH = 64; a.idleRow = 0; a.idleFrames = 2; a.walkRow = 1; a.walkFrames = 4;
+        m_reg.add<AnimSprite>(e, a);
+        m_reg.add<AABB>(e, AABB{{18.0f, 30.0f}});
         m_reg.add<RigidBody>(e, RigidBody{});
         m_reg.add<Controllable>(e, Controllable{});
         m_reg.add<Health>(e, Health{});
-        m_selected = e; setStatus("Joueur cree (jouable en Play)"); return e;
+        m_selected = e; setStatus("Joueur cree (anime, jouable en Play)"); return e;
     }
     Entity spawnEnemy(Vec2 pos) {
         Entity e = makeSpriteEntity("enemy.png", pos);
@@ -279,6 +295,7 @@ private:
         if (m_reg.has<RectShape>(e))   return m_reg.get<RectShape>(e).size * 0.5f;
         if (m_reg.has<AABB>(e))        return m_reg.get<AABB>(e).halfSize;
         if (m_reg.has<SpriteAsset>(e)) return m_reg.get<SpriteAsset>(e).size * 0.5f;
+        if (m_reg.has<AnimSprite>(e))  { AnimSprite& a = m_reg.get<AnimSprite>(e); return {a.frameW * 0.5f, a.frameH * 0.5f}; }
         return {20.0f, 20.0f};
     }
 
@@ -316,6 +333,18 @@ private:
         m_reg.view<Controllable, RigidBody>([&](Entity, Controllable& ctrl, RigidBody& rb) {
             rb.velocity.x = static_cast<float>(R - L) * ctrl.speed;
             if (jump && rb.onGround) rb.velocity.y = -ctrl.jumpForce;
+        });
+    }
+    // Fait avancer les sprites animés (marche si l'entité se déplace au sol).
+    void animationSystem(float dt) {
+        m_reg.view<AnimSprite>([&](Entity e, AnimSprite& a) {
+            float vx = 0.0f;
+            if (m_reg.has<RigidBody>(e)) vx = m_reg.get<RigidBody>(e).velocity.x;
+            a.walking = std::abs(vx) > 8.0f;
+            if (vx > 8.0f) a.faceLeft = false; else if (vx < -8.0f) a.faceLeft = true;
+            const int frames = std::max(1, a.walking ? a.walkFrames : a.idleFrames);
+            a.timer += dt;
+            if (a.timer >= a.frameTime) { a.timer = 0.0f; a.frame = (a.frame + 1) % frames; }
         });
     }
     void patrolSystem(float dt) {
@@ -396,6 +425,7 @@ private:
             controlSystem();
             patrolSystem(dt);
             physicsStep(m_reg, std::min(dt, 0.033f), {0.0f, kGravity});
+            animationSystem(dt);
             gameplaySystem();
         }
         renderSceneToTexture();
@@ -507,6 +537,19 @@ private:
             ::Texture2D& t = thumbnail(sp.path);
             const ::Rectangle src{0, 0, static_cast<float>(t.width), static_cast<float>(t.height)};
             const ::Rectangle dst{tr.position.x, tr.position.y, sp.size.x * tr.scale.x, sp.size.y * tr.scale.y};
+            DrawTexturePro(t, src, dst, ::Vector2{dst.width * 0.5f, dst.height * 0.5f}, tr.rotation, ::WHITE);
+        });
+        // Sprites animés (joueur).
+        m_reg.view<Transform2D, AnimSprite>([&](Entity, Transform2D& tr, AnimSprite& a) {
+            ::Texture2D& t = thumbnail(a.path);
+            const bool walk = m_playing && a.walking;
+            const int row = walk ? a.walkRow : a.idleRow;
+            const int frames = std::max(1, walk ? a.walkFrames : a.idleFrames);
+            const int fr = m_playing ? (a.frame % frames) : 0;
+            const float flip = a.faceLeft ? -1.0f : 1.0f;
+            const ::Rectangle src{static_cast<float>(fr * a.frameW), static_cast<float>(row * a.frameH),
+                                  flip * static_cast<float>(a.frameW), static_cast<float>(a.frameH)};
+            const ::Rectangle dst{tr.position.x, tr.position.y, a.frameW * tr.scale.x, a.frameH * tr.scale.y};
             DrawTexturePro(t, src, dst, ::Vector2{dst.width * 0.5f, dst.height * 0.5f}, tr.rotation, ::WHITE);
         });
         if (!m_playing && m_reg.valid(m_selected) && m_reg.has<Transform2D>(m_selected)) {
@@ -704,6 +747,7 @@ private:
         if (m_reg.has<Goal>(e))         s += "O";
         if (m_reg.has<Health>(e))       s += "H";
         if (m_reg.has<RigidBody>(e))    s += "P";
+        if (m_reg.has<AnimSprite>(e))   s += "A";
         if (m_reg.has<SpriteAsset>(e))  s += "S";
         if (m_reg.has<RectShape>(e))    s += "R";
         return s + "]";
@@ -747,6 +791,14 @@ private:
             if (ImGui::ColorEdit3("couleur", col)) {
                 r.color.r = (std::uint8_t)(col[0] * 255); r.color.g = (std::uint8_t)(col[1] * 255); r.color.b = (std::uint8_t)(col[2] * 255);
             }
+        }
+        if (m_reg.has<AnimSprite>(m_selected) && ImGui::CollapsingHeader("Sprite anime", ImGuiTreeNodeFlags_DefaultOpen)) {
+            AnimSprite& a = m_reg.get<AnimSprite>(m_selected);
+            ImGui::TextWrapped("%s", a.path.c_str());
+            ImGui::DragInt2("taille frame", &a.frameW, 1.0f, 1, 1024);
+            ImGui::DragInt2("idle (ligne, nb)", &a.idleRow, 0.1f, 0, 64);
+            ImGui::DragInt2("walk (ligne, nb)", &a.walkRow, 0.1f, 0, 64);
+            ImGui::DragFloat("duree/frame (s)", &a.frameTime, 0.005f, 0.02f, 1.0f);
         }
         if (m_reg.has<SpriteAsset>(m_selected) && ImGui::CollapsingHeader("Image", ImGuiTreeNodeFlags_DefaultOpen)) {
             SpriteAsset& sp = m_reg.get<SpriteAsset>(m_selected);
@@ -906,6 +958,12 @@ private:
             if (m_reg.has<Goal>(e))        je["Goal"] = true;
             if (m_reg.has<Health>(e))      je["Health"] = {{"lives", m_reg.get<Health>(e).lives}};
             if (m_reg.has<SpriteAsset>(e)) { SpriteAsset& sp = m_reg.get<SpriteAsset>(e); je["SpriteAsset"] = {{"path", sp.path}, {"size", vecToJ(sp.size)}}; }
+            if (m_reg.has<AnimSprite>(e)) {
+                AnimSprite& a = m_reg.get<AnimSprite>(e);
+                je["AnimSprite"] = {{"path", a.path}, {"fw", a.frameW}, {"fh", a.frameH},
+                                    {"ir", a.idleRow}, {"if", a.idleFrames}, {"wr", a.walkRow},
+                                    {"wf", a.walkFrames}, {"ft", a.frameTime}};
+            }
             doc["entities"].push_back(je);
         }
         return doc;
@@ -927,6 +985,15 @@ private:
             if (je.contains("Goal"))        m_reg.add<Goal>(e, Goal{});
             if (je.contains("Health"))      m_reg.add<Health>(e, Health{je["Health"]["lives"].get<int>()});
             if (je.contains("SpriteAsset")) { const json& j = je["SpriteAsset"]; m_reg.add<SpriteAsset>(e, SpriteAsset{j["path"].get<std::string>(), jToVec(j["size"])}); }
+            if (je.contains("AnimSprite")) {
+                const json& j = je["AnimSprite"];
+                AnimSprite a; a.path = j["path"].get<std::string>();
+                a.frameW = j["fw"].get<int>(); a.frameH = j["fh"].get<int>();
+                a.idleRow = j["ir"].get<int>(); a.idleFrames = j["if"].get<int>();
+                a.walkRow = j["wr"].get<int>(); a.walkFrames = j["wf"].get<int>();
+                a.frameTime = j["ft"].get<float>();
+                m_reg.add<AnimSprite>(e, a);
+            }
         }
     }
 
