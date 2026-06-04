@@ -90,6 +90,7 @@ private:
     float m_invuln = 0.0f;       // invincibilité après un coup (s)
     float m_timeLimit = 0.0f;    // limite de temps du niveau (0 = aucune)
     float m_timeLeft = 0.0f;
+    int m_levelNum = 1;          // niveau courant (niveauN.json)
     mjv::Sound m_sfxCoin, m_sfxWin, m_sfxLose, m_sfxHit;
 
     ::RenderTexture2D m_target{};
@@ -110,7 +111,12 @@ private:
         m_sfxWin.load(dir + "win.wav");
         m_sfxLose.load(dir + "lose.wav");
         m_sfxHit.load(dir + "bump.wav");
-        buildScene();
+        // Au 1er lancement, crée deux niveaux de démo sur le disque.
+        if (!loadLevel(1)) {
+            buildScene();   saveLevel();      // niveau 1
+            m_levelNum = 2; buildLevel2(); saveLevel(); // niveau 2
+            m_levelNum = 1; loadLevel(1);
+        }
     }
 
     // ----------------------------------------------------------------- thème
@@ -147,6 +153,17 @@ private:
         m_selected = e;
         return e;
     }
+    std::string assetPath(const char* name) const { return std::string(MJV_ASSET_DIR) + "/" + name; }
+    // Crée une entité affichant un sprite (sa taille = taille de l'image).
+    Entity makeSpriteEntity(const char* name, Vec2 pos) {
+        const std::string path = assetPath(name);
+        ::Texture2D& t = thumbnail(path);
+        const Vec2 size{static_cast<float>(t.width), static_cast<float>(t.height)};
+        Entity e = m_reg.create();
+        m_reg.add<Transform2D>(e, Transform2D{pos});
+        m_reg.add<SpriteAsset>(e, SpriteAsset{path, size});
+        return e;
+    }
     Entity spawnPlatform(Vec2 pos) {
         Entity e = m_reg.create();
         m_reg.add<Transform2D>(e, Transform2D{pos});
@@ -155,45 +172,35 @@ private:
         m_selected = e; setStatus("Plateforme creee"); return e;
     }
     Entity spawnCrate(Vec2 pos) {
-        Entity e = m_reg.create();
-        m_reg.add<Transform2D>(e, Transform2D{pos});
-        m_reg.add<RectShape>(e, RectShape{{42.0f, 42.0f}, mjv::Color{200, 150, 90, 255}});
-        m_reg.add<AABB>(e, AABB{{21.0f, 21.0f}});
+        Entity e = makeSpriteEntity("crate.png", pos);
+        m_reg.add<AABB>(e, AABB{m_reg.get<SpriteAsset>(e).size * 0.5f});
         m_reg.add<RigidBody>(e, RigidBody{});
         m_selected = e; setStatus("Caisse creee"); return e;
     }
     Entity spawnPlayer(Vec2 pos) {
-        Entity e = m_reg.create();
-        m_reg.add<Transform2D>(e, Transform2D{pos});
-        m_reg.add<RectShape>(e, RectShape{{38.0f, 54.0f}, mjv::Color{80, 170, 240, 255}});
-        m_reg.add<AABB>(e, AABB{{19.0f, 27.0f}});
+        Entity e = makeSpriteEntity("player.png", pos);
+        m_reg.add<AABB>(e, AABB{m_reg.get<SpriteAsset>(e).size * 0.5f});
         m_reg.add<RigidBody>(e, RigidBody{});
         m_reg.add<Controllable>(e, Controllable{});
         m_reg.add<Health>(e, Health{});
         m_selected = e; setStatus("Joueur cree (jouable en Play)"); return e;
     }
     Entity spawnEnemy(Vec2 pos) {
-        Entity e = m_reg.create();
-        m_reg.add<Transform2D>(e, Transform2D{pos});
-        m_reg.add<RectShape>(e, RectShape{{40.0f, 40.0f}, mjv::Color{220, 70, 70, 255}});
-        m_reg.add<AABB>(e, AABB{{20.0f, 20.0f}});
+        Entity e = makeSpriteEntity("enemy.png", pos);
+        m_reg.add<AABB>(e, AABB{m_reg.get<SpriteAsset>(e).size * 0.5f});
         m_reg.add<RigidBody>(e, RigidBody{});
         m_reg.add<Patrol>(e, Patrol{});
         m_selected = e; setStatus("Ennemi cree (patrouille en Play)"); return e;
     }
-    // Pièce à ramasser : RectShape SANS AABB (pas un mur solide, juste un trigger).
+    // Pièce à ramasser : sprite SANS AABB (pas un mur solide, juste un trigger).
     Entity spawnCoin(Vec2 pos) {
-        Entity e = m_reg.create();
-        m_reg.add<Transform2D>(e, Transform2D{pos});
-        m_reg.add<RectShape>(e, RectShape{{26.0f, 26.0f}, mjv::Color{253, 203, 0, 255}});
+        Entity e = makeSpriteEntity("coin.png", pos);
         m_reg.add<Collectible>(e, Collectible{});
         m_selected = e; setStatus("Piece creee"); return e;
     }
     // Objectif de fin de niveau (trigger, sans collision physique).
     Entity spawnGoal(Vec2 pos) {
-        Entity e = m_reg.create();
-        m_reg.add<Transform2D>(e, Transform2D{pos});
-        m_reg.add<RectShape>(e, RectShape{{34.0f, 90.0f}, mjv::Color{120, 230, 120, 255}});
+        Entity e = makeSpriteEntity("flag.png", pos);
         m_reg.add<Goal>(e, Goal{});
         m_selected = e; setStatus("Objectif cree"); return e;
     }
@@ -231,13 +238,33 @@ private:
         spawnCoin({1150.0f, 450.0f});
         spawnCoin({1550.0f, 330.0f});
         // Objectif de fin, et le joueur au départ.
-        spawnGoal({2000.0f, 620.0f});
+        spawnGoal({2000.0f, 600.0f});
         spawnPlayer({200.0f, 200.0f});
+        m_timeLimit = 0.0f;
+    }
+
+    // Deuxième niveau de démo (plus long, chronométré, plus d'ennemis).
+    void buildLevel2() {
+        m_reg.clear(); m_selected = NullEntity;
+        Entity ground = m_reg.create();
+        m_reg.add<Transform2D>(ground, Transform2D{{1600.0f, 690.0f}});
+        m_reg.add<RectShape>(ground, RectShape{{3400.0f, 60.0f}, mjv::Color{0, 160, 100, 255}});
+        m_reg.add<AABB>(ground, AABB{{1700.0f, 30.0f}});
+        spawnPlatform({360.0f, 540.0f}); spawnPlatform({700.0f, 430.0f});
+        spawnPlatform({1050.0f, 330.0f}); spawnPlatform({1450.0f, 440.0f});
+        spawnPlatform({1850.0f, 360.0f}); spawnPlatform({2250.0f, 480.0f});
+        spawnEnemy({700.0f, 390.0f}); spawnEnemy({1450.0f, 400.0f}); spawnEnemy({1850.0f, 320.0f});
+        spawnCoin({360.0f, 500.0f}); spawnCoin({700.0f, 390.0f}); spawnCoin({1050.0f, 290.0f});
+        spawnCoin({1450.0f, 400.0f}); spawnCoin({1850.0f, 320.0f}); spawnCoin({2250.0f, 440.0f});
+        spawnGoal({2750.0f, 600.0f});
+        spawnPlayer({180.0f, 200.0f});
+        m_timeLimit = 45.0f;
     }
 
     Vec2 halfExtents(Entity e) {
-        if (m_reg.has<RectShape>(e)) return m_reg.get<RectShape>(e).size * 0.5f;
-        if (m_reg.has<AABB>(e))      return m_reg.get<AABB>(e).halfSize;
+        if (m_reg.has<RectShape>(e))   return m_reg.get<RectShape>(e).size * 0.5f;
+        if (m_reg.has<AABB>(e))        return m_reg.get<AABB>(e).halfSize;
+        if (m_reg.has<SpriteAsset>(e)) return m_reg.get<SpriteAsset>(e).size * 0.5f;
         return {20.0f, 20.0f};
     }
 
@@ -340,8 +367,12 @@ private:
         if (!m_playing) handleViewportInteraction();
 
         if (m_playing) {
-            // Rejouer le niveau quand la partie est finie (Entree).
-            if ((m_won || m_lost) && Input::isPressed(Key::Enter)) { stop(); play(); renderSceneToTexture(); return; }
+            // Fin de partie (Entree) : niveau suivant si gagné et s'il existe, sinon rejouer.
+            if ((m_won || m_lost) && Input::isPressed(Key::Enter)) {
+                if (m_won && hasNextLevel()) advanceLevel();
+                else { stop(); play(); }
+                renderSceneToTexture(); return;
+            }
             if (m_invuln > 0.0f) m_invuln -= dt;
             // Limite de temps.
             if (m_timeLimit > 0.0f && !m_won && !m_lost) {
@@ -441,18 +472,21 @@ private:
         if (m_timeLimit > 0.0f)
             Graphics::drawText("Temps : " + std::to_string(static_cast<int>(std::ceil(m_timeLeft))),
                                {24.0f, 104.0f}, 30, white);
+        // Niveau (en haut à droite).
+        Graphics::drawText("Niveau " + std::to_string(m_levelNum), {kWorldW - 210.0f, 22.0f}, 30, white);
 
         // Écran de fin stylé.
         if (m_won || m_lost) {
-            Graphics::drawRectangle({0.0f, 0.0f}, {kWorldW, kWorldH}, mjv::Color{12, 14, 20, 170});
+            Graphics::drawRectangle({0.0f, 0.0f}, {kWorldW, kWorldH}, mjv::Color{12, 14, 20, 175});
             const float cy = kWorldH * 0.5f;
-            if (m_won) {
-                drawCentered("VICTOIRE !", cy - 110.0f, 96, mjv::Color{120, 230, 120, 255});
-            } else {
-                drawCentered("PERDU", cy - 110.0f, 96, mjv::Color{235, 90, 90, 255});
-            }
+            const bool next = m_won && hasNextLevel();
+            if (next)        drawCentered("Niveau termine !", cy - 110.0f, 90, mjv::Color{120, 230, 120, 255});
+            else if (m_won)  drawCentered("VICTOIRE !", cy - 110.0f, 96, mjv::Color{120, 230, 120, 255});
+            else             drawCentered("PERDU", cy - 110.0f, 96, mjv::Color{235, 90, 90, 255});
             drawCentered("Score : " + std::to_string(m_score), cy + 10.0f, 44, white);
-            drawCentered("Entree : rejouer       Stop : editer", cy + 80.0f, 28, mjv::Color{180, 185, 200, 255});
+            drawCentered(next ? "Entree : niveau suivant       Stop : editer"
+                              : "Entree : rejouer       Stop : editer",
+                         cy + 80.0f, 28, mjv::Color{180, 185, 200, 255});
         }
     }
 
@@ -492,8 +526,8 @@ private:
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("Fichier")) {
                 if (ImGui::MenuItem("Nouveau")) buildScene();
-                if (ImGui::MenuItem("Ouvrir")) loadScene();
-                if (ImGui::MenuItem("Sauvegarder")) saveScene();
+                if (ImGui::MenuItem("Ouvrir ce niveau")) loadLevel(m_levelNum);
+                if (ImGui::MenuItem("Sauvegarder ce niveau")) saveLevel();
                 ImGui::Separator();
                 if (ImGui::MenuItem("Quitter")) std::exit(0);
                 ImGui::EndMenu();
@@ -516,6 +550,11 @@ private:
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Niveau")) {
+                ImGui::SetNextItemWidth(120);
+                if (ImGui::InputInt("numero", &m_levelNum) && m_levelNum < 1) m_levelNum = 1;
+                if (ImGui::MenuItem("Charger ce numero")) loadLevel(m_levelNum);
+                if (ImGui::MenuItem("Sauvegarder sous ce numero")) saveLevel();
+                ImGui::Separator();
                 ImGui::SetNextItemWidth(160);
                 ImGui::DragFloat("Temps limite (s)", &m_timeLimit, 1.0f, 0.0f, 999.0f, "%.0f");
                 ImGui::TextDisabled("0 = pas de limite");
@@ -699,7 +738,31 @@ private:
     // ------------------------------------------------------------- JSON
     static json vecToJ(Vec2 v) { return json::array({v.x, v.y}); }
     static Vec2 jToVec(const json& j) { return {j[0].get<float>(), j[1].get<float>()}; }
-    std::string scenePath() const { return std::string(MJV_EDITOR_DIR) + "/scene.json"; }
+    std::string levelPath(int n) const { return std::string(MJV_EDITOR_DIR) + "/niveau" + std::to_string(n) + ".json"; }
+    bool hasNextLevel() { std::ifstream f(levelPath(m_levelNum + 1)); return f.good(); }
+
+    void saveLevel() {
+        std::ofstream f(levelPath(m_levelNum));
+        if (f) { f << sceneToJson().dump(2); setStatus("Niveau " + std::to_string(m_levelNum) + " sauvegarde"); }
+        else setStatus("Echec sauvegarde");
+    }
+    bool loadLevel(int n) {
+        std::ifstream f(levelPath(n));
+        if (!f) { setStatus("Niveau " + std::to_string(n) + " introuvable"); return false; }
+        json doc;
+        try { f >> doc; } catch (...) { setStatus("niveau invalide"); return false; }
+        jsonToScene(doc); m_levelNum = n; setStatus("Niveau " + std::to_string(n) + " charge"); return true;
+    }
+    // Passe au niveau suivant en pleine partie (en gardant le score).
+    void advanceLevel() {
+        const int keep = m_score;
+        loadLevel(m_levelNum + 1);
+        m_snapshot = sceneToJson();
+        m_won = false; m_lost = false; m_invuln = 0.0f;
+        m_timeLeft = m_timeLimit;
+        Vec2 sp; if (firstPlayer(sp)) m_playerSpawn = sp;
+        m_score = keep;
+    }
 
     json sceneToJson() {
         json doc; doc["entities"] = json::array();
@@ -740,17 +803,6 @@ private:
         }
     }
 
-    void saveScene() {
-        std::ofstream f(scenePath());
-        if (f) { f << sceneToJson().dump(2); setStatus("Scene sauvegardee"); } else setStatus("Echec sauvegarde");
-    }
-    void loadScene() {
-        std::ifstream f(scenePath());
-        if (!f) { setStatus("Aucun scene.json"); return; }
-        json doc;
-        try { f >> doc; } catch (...) { setStatus("scene.json invalide"); return; }
-        jsonToScene(doc); setStatus("Scene chargee");
-    }
     void setStatus(const std::string& s) { m_status = s; m_statusTimer = 3.0f; }
 };
 

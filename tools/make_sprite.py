@@ -109,3 +109,53 @@ write_png(sheet, os.path.join(assets, "hero_sheet.png"))
 single = make_buf(FW, FH)
 draw_char(single, 0, 0, 0, 0)
 write_png(single, os.path.join(assets, "hero.png"))
+
+
+# --- Sprites pour l'éditeur (vrais visuels au lieu de rectangles) ------------
+def gen_player():
+    b = make_buf(40, 56)
+    OUT, SKIN = (30, 30, 40, 255), (255, 220, 180, 255)
+    BODY, DARK = (70, 130, 220, 255), (45, 95, 170, 255)
+    rect(b, 7, 22, 33, 52, OUT); rect(b, 9, 24, 31, 50, BODY); rect(b, 9, 40, 31, 50, DARK)
+    rect(b, 11, 51, 18, 55, (40, 40, 50, 255)); rect(b, 22, 51, 29, 55, (40, 40, 50, 255))
+    disc(b, 20, 14, 12, OUT); disc(b, 20, 14, 10, SKIN)
+    disc(b, 16, 13, 2, OUT); disc(b, 24, 13, 2, OUT)
+    write_png(b, os.path.join(assets, "player.png"))
+
+
+def gen_enemy():
+    b = make_buf(40, 40)
+    OUT, BODY, DARK = (40, 10, 10, 255), (220, 70, 70, 255), (170, 40, 40, 255)
+    disc(b, 20, 22, 17, OUT); disc(b, 20, 22, 15, BODY); disc(b, 20, 27, 9, DARK)
+    disc(b, 14, 18, 5, (255, 255, 255, 255)); disc(b, 14, 19, 2, OUT)
+    disc(b, 26, 18, 5, (255, 255, 255, 255)); disc(b, 26, 19, 2, OUT)
+    rect(b, 9, 11, 17, 13, OUT); rect(b, 23, 11, 31, 13, OUT)  # sourcils fâchés
+    write_png(b, os.path.join(assets, "enemy.png"))
+
+
+def gen_coin():
+    b = make_buf(28, 28)
+    OUT, GOLD, LIGHT = (150, 110, 0, 255), (253, 203, 0, 255), (255, 235, 130, 255)
+    disc(b, 14, 14, 13, OUT); disc(b, 14, 14, 11, GOLD); disc(b, 14, 14, 6, LIGHT)
+    rect(b, 9, 6, 11, 12, (255, 255, 255, 210))  # reflet
+    write_png(b, os.path.join(assets, "coin.png"))
+
+
+def gen_flag():
+    b = make_buf(40, 90)
+    OUT, POLE, FLAG = (40, 40, 50, 255), (190, 190, 200, 255), (120, 230, 120, 255)
+    rect(b, 6, 4, 11, 88, OUT); rect(b, 7, 6, 10, 86, POLE)   # mât
+    rect(b, 11, 8, 37, 32, OUT); rect(b, 12, 10, 35, 30, FLAG)  # drapeau
+    rect(b, 2, 84, 30, 89, (110, 80, 50, 255))                  # socle
+    write_png(b, os.path.join(assets, "flag.png"))
+
+
+def gen_crate():
+    b = make_buf(42, 42)
+    OUT, WOOD, DARK = (60, 40, 20, 255), (190, 140, 80, 255), (150, 105, 60, 255)
+    rect(b, 1, 1, 40, 40, OUT); rect(b, 3, 3, 38, 38, WOOD)
+    rect(b, 3, 19, 38, 22, DARK); rect(b, 19, 3, 22, 38, DARK)  # planches en croix
+    write_png(b, os.path.join(assets, "crate.png"))
+
+
+gen_player(); gen_enemy(); gen_coin(); gen_flag(); gen_crate()

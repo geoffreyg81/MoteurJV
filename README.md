@@ -163,12 +163,17 @@ tu construis et tu joues un jeu sans écrire une ligne.
    suit le joueur**. **Stop** restaure la scène d'édition.
 5. **Sauvegarde** la scène en JSON
 
-Une boucle de jeu complète **sans une ligne de code**, avec du **jus** : sons de
-gameplay (plop de pièce, jingle de victoire, game over), **vies** + respawn,
-**temps limite** optionnel, **score**, et un **écran de fin stylé** (Victoire /
-Perdu, Entrée pour rejouer). Les comportements sont des composants à cocher :
-`Controllable` (joueur), `Patrol` (ennemi), `Collectible` (pièce), `Goal`
-(objectif), `Health` (vies) — réglés dans le menu **Créer** et l'**Inspecteur**.
+Une boucle de jeu complète **sans une ligne de code**, avec du **jus** : de **vrais
+sprites** (joueur, ennemi, pièce, drapeau, caisse — générés sans dépendance), sons
+de gameplay (plop, jingle de victoire, game over), **vies** + respawn, **temps
+limite** optionnel, **score**, et un **écran de fin stylé**. Les comportements sont
+des composants à cocher : `Controllable` (joueur), `Patrol` (ennemi), `Collectible`
+(pièce), `Goal` (objectif), `Health` (vies).
+
+**Plusieurs niveaux enchaînés** : chaque scène est un fichier `niveauN.json`. En
+atteignant l'objectif, le **niveau suivant se charge** (Entrée), le score se cumule.
+Le menu **Niveau** permet de sauvegarder/charger n'importe quel numéro et de régler
+le temps limite. Deux niveaux de démo sont créés au premier lancement.
 
 Détails techniques : thème sombre custom, **layout ancré (DockSpace)** 3 zones, le
 jeu rendu dans une **RenderTexture** affichée dans le Viewport, caméra 2D de suivi.
