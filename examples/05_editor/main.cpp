@@ -131,6 +131,11 @@ private:
     float m_musicVol = 0.5f, m_sfxVol = 0.85f;
     bool m_muted = false;
     bool m_musicStarted = false, m_musicPlaying = false;
+    // Options / réglages.
+    bool m_showOptions = false;
+    int m_lang = 0;            // 0 = Francais, 1 = English
+    int m_keyLeft = KEY_LEFT, m_keyRight = KEY_RIGHT, m_keyJump = KEY_SPACE;
+    int m_rebinding = 0;       // 0=aucun, 1=gauche, 2=droite, 3=saut
 
     ::RenderTexture2D m_target{};
     bool m_layoutInit = false;
@@ -432,10 +437,10 @@ private:
     void controlSystem(float dt) {
         if (m_won || m_lost) return; // partie terminée : on fige le joueur
         const bool kbd = !ImGui::GetIO().WantCaptureKeyboard;
-        const int L = (kbd && (Input::isDown(Key::Left)  || Input::isDown(Key::A) || Input::isDown(Key::Q))) ? 1 : 0;
-        const int R = (kbd && (Input::isDown(Key::Right) || Input::isDown(Key::D))) ? 1 : 0;
+        const int L = (kbd && (Input::isDown(Key::Left)  || Input::isDown(Key::A) || Input::isDown(Key::Q) || IsKeyDown(m_keyLeft))) ? 1 : 0;
+        const int R = (kbd && (Input::isDown(Key::Right) || Input::isDown(Key::D) || IsKeyDown(m_keyRight))) ? 1 : 0;
         const bool jumpPressed = kbd && (Input::isPressed(Key::Space) || Input::isPressed(Key::Up) ||
-                                         Input::isPressed(Key::W) || Input::isPressed(Key::Z));
+                                         Input::isPressed(Key::W) || Input::isPressed(Key::Z) || IsKeyPressed(m_keyJump));
         const mjv::Color dust{220, 220, 235, 255};
         m_reg.view<Controllable, RigidBody, Transform2D>([&](Entity e, Controllable& c, RigidBody& rb, Transform2D& tr) {
             rb.velocity.x = static_cast<float>(R - L) * c.speed;
@@ -692,7 +697,11 @@ private:
         m_sfxCoin.setVolume(sfx); m_sfxWin.setVolume(sfx); m_sfxLose.setVolume(sfx);
         m_sfxHit.setVolume(sfx); m_sfxShoot.setVolume(sfx);
         m_music.setVolume(mus);
+        Audio::setMasterVolume(m_muted ? 0.0f : 1.0f); // coupe-son maître garanti
     }
+
+    // Petit helper de traduction (selon la langue choisie).
+    const char* t(const char* fr, const char* en) const { return m_lang == 1 ? en : fr; }
 
     int playerLives() {
         int lives = -1;
@@ -925,34 +934,35 @@ private:
         const mjv::Color shadow{0, 0, 0, 140};
 
         if (!m_titleActive) { // HUD de jeu
-            Graphics::drawText("Score : " + std::to_string(m_score), {26.0f, 22.0f}, 38, shadow);
-            Graphics::drawText("Score : " + std::to_string(m_score), {24.0f, 20.0f}, 38, white);
+            const std::string sc = t("Score : ", "Score: ") + std::to_string(m_score);
+            Graphics::drawText(sc, {26.0f, 22.0f}, 38, shadow);
+            Graphics::drawText(sc, {24.0f, 20.0f}, 38, white);
             const int lives = playerLives();
-            if (lives >= 0) Graphics::drawText("Vies : " + std::to_string(lives), {24.0f, 66.0f}, 30, white);
+            if (lives >= 0) Graphics::drawText(t("Vies : ", "Lives: ") + std::to_string(lives), {24.0f, 66.0f}, 30, white);
             if (m_timeLimit > 0.0f)
-                Graphics::drawText("Temps : " + std::to_string(static_cast<int>(std::ceil(m_timeLeft))), {24.0f, 104.0f}, 30, white);
-            Graphics::drawText("Niveau " + std::to_string(m_levelNum), {kWorldW - 210.0f, 22.0f}, 30, white);
+                Graphics::drawText(t("Temps : ", "Time: ") + std::to_string(static_cast<int>(std::ceil(m_timeLeft))), {24.0f, 104.0f}, 30, white);
+            Graphics::drawText(t("Niveau ", "Level ") + std::to_string(m_levelNum), {kWorldW - 210.0f, 22.0f}, 30, white);
         }
 
         const float cy = kWorldH * 0.5f;
         if (m_titleActive) {                    // écran-titre
             Graphics::drawRectangle({0.0f, 0.0f}, {kWorldW, kWorldH}, mjv::Color{12, 14, 20, 200});
             drawCentered(m_levelName, cy - 100.0f, 86, mjv::Color{120, 200, 255, 255});
-            drawCentered("Appuie sur Entree pour jouer", cy + 24.0f, 32, white);
-            drawCentered("Fleches / ZQSD : bouger     Espace : sauter", cy + 72.0f, 22, mjv::Color{180, 185, 200, 255});
+            drawCentered(t("Appuie sur Entree pour jouer", "Press Enter to play"), cy + 24.0f, 32, white);
+            drawCentered(t("Fleches / ZQSD : bouger     Espace : sauter", "Arrows / WASD: move     Space: jump"), cy + 72.0f, 22, mjv::Color{180, 185, 200, 255});
         } else if (m_paused) {                  // menu pause
             Graphics::drawRectangle({0.0f, 0.0f}, {kWorldW, kWorldH}, mjv::Color{12, 14, 20, 185});
             drawCentered("PAUSE", cy - 130.0f, 90, mjv::Color{255, 220, 120, 255});
-            const char* opts[3] = {"Reprendre", "Recommencer", "Quitter (editer)"};
+            const char* opts[3] = {t("Reprendre", "Resume"), t("Recommencer", "Restart"), t("Quitter (editer)", "Quit (edit)")};
             drawMenuOptions(opts, 3, cy - 20.0f);
-            drawCentered("Fleches + Entree pour choisir", cy + 160.0f, 22, mjv::Color{150, 155, 170, 255});
+            drawCentered(t("Fleches + Entree pour choisir", "Arrows + Enter to choose"), cy + 160.0f, 22, mjv::Color{150, 155, 170, 255});
         } else if (m_won || m_lost) {           // menu de fin
             const bool next = m_won && hasNextLevel();
             Graphics::drawRectangle({0.0f, 0.0f}, {kWorldW, kWorldH}, mjv::Color{12, 14, 20, 185});
-            const std::string title = next ? "Niveau termine !" : (m_won ? "VICTOIRE !" : "PERDU");
+            const std::string title = next ? t("Niveau termine !", "Level complete!") : (m_won ? t("VICTOIRE !", "YOU WIN!") : t("PERDU", "GAME OVER"));
             drawCentered(title, cy - 150.0f, 90, m_won ? mjv::Color{120, 230, 120, 255} : mjv::Color{235, 90, 90, 255});
-            drawCentered("Score : " + std::to_string(m_score), cy - 64.0f, 40, white);
-            const char* opts[2] = {next ? "Niveau suivant" : "Rejouer", "Quitter (editer)"};
+            drawCentered(t("Score : ", "Score: ") + std::to_string(m_score), cy - 64.0f, 40, white);
+            const char* opts[2] = {next ? t("Niveau suivant", "Next level") : t("Rejouer", "Play again"), t("Quitter (editer)", "Quit (edit)")};
             drawMenuOptions(opts, 2, cy + 10.0f);
         }
     }
@@ -966,6 +976,7 @@ private:
         drawInspector();
         drawViewport();
         drawAssets();
+        drawOptions();
         rlImGuiEnd();
     }
 
@@ -1065,6 +1076,10 @@ private:
                 ImGui::SetNextItemWidth(160);
                 if (ImGui::SliderFloat("Effets", &m_sfxVol, 0.0f, 1.0f)) applyVolumes();
                 if (ImGui::Checkbox("Muet", &m_muted)) applyVolumes();
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Options")) {
+                if (ImGui::MenuItem("Touches, langue, son...")) m_showOptions = true;
                 ImGui::EndMenu();
             }
             ImGui::Separator();
@@ -1278,6 +1293,58 @@ private:
             if (ext == ".png" || ext == ".jpg") v.push_back(f.path().string());
         }
         return v;
+    }
+
+    std::string keyName(int k) {
+        if (k >= KEY_A && k <= KEY_Z) return std::string(1, static_cast<char>('A' + (k - KEY_A)));
+        if (k >= KEY_ZERO && k <= KEY_NINE) return std::string(1, static_cast<char>('0' + (k - KEY_ZERO)));
+        switch (k) {
+            case KEY_LEFT: return t("Gauche", "Left");   case KEY_RIGHT: return t("Droite", "Right");
+            case KEY_UP: return t("Haut", "Up");         case KEY_DOWN: return t("Bas", "Down");
+            case KEY_SPACE: return t("Espace", "Space"); case KEY_ENTER: return t("Entree", "Enter");
+            case KEY_LEFT_SHIFT: case KEY_RIGHT_SHIFT: return "Shift";
+            case KEY_LEFT_CONTROL: case KEY_RIGHT_CONTROL: return "Ctrl";
+            default: break;
+        }
+        return "#" + std::to_string(k);
+    }
+    void keyRow(const char* label, int& key, int slot) {
+        ImGui::Text("%s", label);
+        ImGui::SameLine(170.0f);
+        ImGui::PushID(slot);
+        if (m_rebinding == slot) {
+            ImGui::Button(t("... appuie sur une touche", "... press a key"), ImVec2(170, 0));
+            const int k = GetKeyPressed();
+            if (k == KEY_ESCAPE) m_rebinding = 0;
+            else if (k != 0) { key = k; m_rebinding = 0; }
+        } else {
+            if (ImGui::Button(keyName(key).c_str(), ImVec2(170, 0))) m_rebinding = slot;
+        }
+        ImGui::PopID();
+    }
+    void drawOptions() {
+        if (!m_showOptions) return;
+        ImGui::SetNextWindowSize(ImVec2(460, 430), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin(t("Options", "Options"), &m_showOptions)) {
+            if (ImGui::CollapsingHeader(t("Son", "Audio"), ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::SetNextItemWidth(230);
+                if (ImGui::SliderFloat(t("Musique", "Music"), &m_musicVol, 0.0f, 1.0f)) applyVolumes();
+                ImGui::SetNextItemWidth(230);
+                if (ImGui::SliderFloat(t("Effets", "SFX"), &m_sfxVol, 0.0f, 1.0f)) applyVolumes();
+                if (ImGui::Checkbox(t("Couper le son (muet)", "Mute all"), &m_muted)) applyVolumes();
+            }
+            if (ImGui::CollapsingHeader(t("Touches", "Controls"), ImGuiTreeNodeFlags_DefaultOpen)) {
+                keyRow(t("Aller a gauche", "Move left"), m_keyLeft, 1);
+                keyRow(t("Aller a droite", "Move right"), m_keyRight, 2);
+                keyRow(t("Sauter", "Jump"), m_keyJump, 3);
+                ImGui::TextDisabled("%s", t("ZQSD / WASD / fleches restent actives", "ZQSD / WASD / arrows always work too"));
+            }
+            if (ImGui::CollapsingHeader(t("Langue", "Language"), ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::SetNextItemWidth(200);
+                ImGui::Combo(t("Langue", "Language"), &m_lang, "Francais\0English\0");
+            }
+        }
+        ImGui::End();
     }
 
     void drawAssets() {

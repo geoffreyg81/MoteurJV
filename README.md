@@ -428,8 +428,8 @@ matière à contributions et à versions futures.
 - [ ] **Discord**, guide de contribution, bonnes premières issues
 
 ### 🕹️ Contrôles & entrées
+- [x] **Touches reconfigurables** (gauche/droite/saut) via une fenêtre Options — fait
 - [ ] **Manettes** (gamepad) et vibrations
-- [ ] **Carte d'actions** reconfigurable (action « sauter » → touche/bouton)
 - [ ] **Écran tactile** (boutons virtuels pour mobile)
 - [ ] **Souris dans le jeu** (viser, cliquer des objets)
 - [x] **Tampon de saut** (jump buffering), **coyote time** et **double saut** — fait
@@ -451,7 +451,7 @@ matière à contributions et à versions futures.
 ### 🗺️ Contenu & données
 - [ ] **Tilemap complet** + import **Tiled** (`.tmx`/`.tsx`)
 - [ ] **Format de scène binaire** (chargement plus rapide que JSON)
-- [ ] **Localisation** (textes multi-langues)
+- [x] **Localisation** FR / EN des textes du jeu (HUD, menus) — fait ; étendre aux autres langues
 - [ ] **Tables de données** (CSV) pour équilibrer le jeu
 - [ ] **Génération procédurale** de niveaux (option)
 
