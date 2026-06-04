@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -47,7 +48,9 @@ struct Controllable {                                         // "joueur"
     // runtime :
     float coyote = 0.0f, buffer = 0.0f;
     int jumpsLeft = 0;
+    bool wasGround = true;
 };
+struct Particle { Vec2 pos, vel; float life = 0, maxLife = 0; mjv::Color color; };
 struct Patrol {                                               // ennemi va-et-vient
     float speed = 90.0f;
     float range = 140.0f;
@@ -133,6 +136,8 @@ private:
     std::vector<json> m_undo, m_redo;
     json m_clipboard;
     bool m_hasClipboard = false;
+    std::vector<Particle> m_particles;
+    float m_shake = 0.0f;
 
     void onStart() override {
         rlImGuiSetup(true);
@@ -317,12 +322,14 @@ private:
         m_snapshot = sceneToJson();
         m_playing = true;
         m_score = 0; m_won = false; m_lost = false; m_invuln = 0.0f;
+        m_particles.clear(); m_shake = 0.0f;
         m_timeLeft = m_timeLimit;
         Vec2 sp; if (firstPlayer(sp)) m_playerSpawn = sp;
         setStatus("Lecture - Stop pour revenir a l'edition");
     }
     void stop() {
         m_playing = false;
+        m_particles.clear(); m_shake = 0.0f;
         jsonToScene(m_snapshot);
         setStatus("Edition");
     }
@@ -343,8 +350,12 @@ private:
         const int R = (kbd && (Input::isDown(Key::Right) || Input::isDown(Key::D))) ? 1 : 0;
         const bool jumpPressed = kbd && (Input::isPressed(Key::Space) || Input::isPressed(Key::Up) ||
                                          Input::isPressed(Key::W) || Input::isPressed(Key::Z));
-        m_reg.view<Controllable, RigidBody>([&](Entity, Controllable& c, RigidBody& rb) {
+        const mjv::Color dust{220, 220, 235, 255};
+        m_reg.view<Controllable, RigidBody, Transform2D>([&](Entity e, Controllable& c, RigidBody& rb, Transform2D& tr) {
             rb.velocity.x = static_cast<float>(R - L) * c.speed;
+            const float feetY = tr.position.y + halfExtents(e).y;
+            // atterrissage : poussière + petite secousse
+            if (rb.onGround && !c.wasGround) { emit({tr.position.x, feetY}, 8, dust, 130.0f); m_shake = std::max(m_shake, 0.16f); }
             // coyote time + recharge des sauts quand on est au sol
             if (rb.onGround) { c.coyote = 0.10f; c.jumpsLeft = std::max(1, c.maxJumps); }
             else c.coyote = std::max(0.0f, c.coyote - dt);
@@ -357,8 +368,10 @@ private:
                     c.buffer = 0.0f;
                     if (fromGround) { c.coyote = 0.0f; c.jumpsLeft = std::max(1, c.maxJumps) - 1; }
                     else            { c.jumpsLeft -= 1; } // saut en l'air (double saut)
+                    emit({tr.position.x, feetY}, 6, dust, 110.0f);
                 }
             }
+            c.wasGround = rb.onGround;
         });
     }
     // Fait avancer les sprites animés (marche si l'entité se déplace au sol).
@@ -389,6 +402,8 @@ private:
     // Le joueur est touché : perd une vie (et respawn) ou perd la partie.
     void hitPlayer(Entity e) {
         m_invuln = 1.4f;
+        m_shake = std::max(m_shake, 0.35f);
+        if (m_reg.has<Transform2D>(e)) emit(m_reg.get<Transform2D>(e).position, 14, mjv::Color{230, 80, 80, 255}, 240.0f);
         if (m_reg.has<Health>(e)) {
             Health& hp = m_reg.get<Health>(e);
             if (--hp.lives <= 0) { lose(); return; }
@@ -398,6 +413,32 @@ private:
         } else {
             lose();
         }
+    }
+
+    static float frand() { return static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX); }
+
+    // Émet un petit nuage de particules.
+    void emit(Vec2 p, int n, mjv::Color col, float speed) {
+        for (int i = 0; i < n; ++i) {
+            const float a = frand() * 6.2832f;
+            const float s = speed * (0.3f + 0.7f * frand());
+            Particle pt;
+            pt.pos = p;
+            pt.vel = {std::cos(a) * s, std::sin(a) * s - speed * 0.3f};
+            pt.maxLife = pt.life = 0.4f + 0.4f * frand();
+            pt.color = col;
+            m_particles.push_back(pt);
+        }
+    }
+    void particleSystem(float dt) {
+        for (Particle& pt : m_particles) {
+            pt.vel.y += 1400.0f * dt;
+            pt.pos += pt.vel * dt;
+            pt.life -= dt;
+        }
+        m_particles.erase(std::remove_if(m_particles.begin(), m_particles.end(),
+                                         [](const Particle& p) { return p.life <= 0.0f; }),
+                          m_particles.end());
     }
 
     // Ramassage des pièces, contact ennemi, objectif atteint.
@@ -414,7 +455,7 @@ private:
         m_reg.view<Collectible, Transform2D>([&](Entity e, Collectible& c, Transform2D& t) {
             const Vec2 h = halfExtents(e);
             for (const P& p : players)
-                if (aabbOverlap(p.c, p.h, t.position, h)) { m_score += c.points; m_sfxCoin.play(); picked.push_back(e); break; }
+                if (aabbOverlap(p.c, p.h, t.position, h)) { m_score += c.points; m_sfxCoin.play(); emit(t.position, 10, mjv::Color{253, 203, 0, 255}, 200.0f); picked.push_back(e); break; }
         });
         for (Entity e : picked) m_reg.destroy(e);
 
@@ -455,6 +496,8 @@ private:
             physicsStep(m_reg, std::min(dt, 0.033f), {0.0f, kGravity});
             animationSystem(dt);
             gameplaySystem();
+            particleSystem(dt);
+            m_shake = std::max(0.0f, m_shake - dt);
         }
         renderSceneToTexture();
     }
@@ -566,6 +609,7 @@ private:
         if (m_playing) {
             Vec2 p;
             if (firstPlayer(p)) { cam.target = {p.x, p.y}; cam.zoom = 1.0f; }
+            if (m_shake > 0.0f) { cam.target.x += (frand() * 2 - 1) * m_shake * 20.0f; cam.target.y += (frand() * 2 - 1) * m_shake * 20.0f; }
         }
         BeginMode2D(cam);
         if (!m_playing && m_snap) drawGrid();
@@ -596,6 +640,14 @@ private:
             const ::Rectangle dst{tr.position.x, tr.position.y, a.frameW * tr.scale.x, a.frameH * tr.scale.y};
             DrawTexturePro(t, src, dst, ::Vector2{dst.width * 0.5f, dst.height * 0.5f}, tr.rotation, ::WHITE);
         });
+        // Particules.
+        for (const Particle& pt : m_particles) {
+            const float k = pt.maxLife > 0.0f ? pt.life / pt.maxLife : 0.0f;
+            const float sz = 5.0f * k + 1.0f;
+            DrawRectangle(static_cast<int>(pt.pos.x - sz * 0.5f), static_cast<int>(pt.pos.y - sz * 0.5f),
+                          static_cast<int>(sz), static_cast<int>(sz),
+                          ::Color{pt.color.r, pt.color.g, pt.color.b, static_cast<unsigned char>(255 * k)});
+        }
         if (!m_playing && m_reg.valid(m_selected) && m_reg.has<Transform2D>(m_selected)) {
             const Vec2 h = halfExtents(m_selected);
             Graphics::drawRectangleOutlineCentered(m_reg.get<Transform2D>(m_selected).position,

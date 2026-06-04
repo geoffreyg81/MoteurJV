@@ -356,7 +356,8 @@ matière à contributions et à versions futures.
 - [x] **Caméra 2D** : suivi du joueur en jeu, pan/zoom dans l'éditeur (fait)
 - [ ] **Parallaxe** et couches (z-order, calques d'arrière/avant-plan)
 - [ ] **Tilemap** : décors à base de tuiles, import Tiled (`.tmx`)
-- [ ] **Système de particules** (étincelles, fumée, explosions)
+- [x] **Particules** (pièce, poussière de saut/atterrissage) + **secousse d'écran** — fait
+- [ ] Particules avancées (émetteurs configurables, explosions, fumée)
 - [ ] **Éclairage 2D** et ombres dynamiques
 - [ ] **Shaders** personnalisés (post-traitement : flou, bloom, CRT…)
 - [ ] **Texte riche** : polices custom, alignement, info-bulles
