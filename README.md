@@ -154,12 +154,18 @@ le tout récupéré par CMake) avec un look **facon Unity**, et surtout **no-cod
 tu construis et tu joues un jeu sans écrire une ligne.
 
 **Le flux sans code :**
-1. Menu **Créer** → *Joueur*, *Plateforme*, *Caisse*, *Ennemi* (entités prêtes à l'emploi)
-2. Place-les à la souris, règle tout dans l'**Inspecteur** (taille, couleur, vitesse, saut, portée…)
+1. Menu **Créer** → *Joueur*, *Plateforme*, *Caisse*, *Ennemi*, *Pièce*, *Objectif* (entités prêtes)
+2. Place-les à la souris, règle tout dans l'**Inspecteur** (taille, couleur, vitesse, saut, portée, points…)
 3. Glisse une **image** depuis Assets pour l'ajouter à la scène
-4. Appuie sur **Play** : ça devient un vrai jeu — gravité, **joueur au clavier**,
-   **ennemis qui patrouillent**, **caméra qui suit le joueur**. **Stop** restaure la scène.
+4. Appuie sur **Play** : ça devient un **vrai jeu jouable de bout en bout** —
+   gravité, **joueur au clavier**, **ennemis qui patrouillent**, **pièces à ramasser**
+   (score), **objectif** de fin (Victoire), contact ennemi (Perdu), **caméra qui
+   suit le joueur**. **Stop** restaure la scène d'édition.
 5. **Sauvegarde** la scène en JSON
+
+Une boucle de jeu complète — collecter, éviter, atteindre l'objectif — **sans une
+ligne de code**. Les comportements sont des composants à cocher : `Controllable`
+(joueur), `Patrol` (ennemi), `Collectible` (pièce), `Goal` (objectif).
 
 Détails techniques : thème sombre custom, **layout ancré (DockSpace)** 3 zones, le
 jeu rendu dans une **RenderTexture** affichée dans le Viewport, caméra 2D de suivi.

@@ -47,6 +47,8 @@ struct Patrol {                                               // ennemi va-et-vi
     float originX = 0.0f;
     bool init = false;
 };
+struct Collectible { int points = 100; };                     // pièce à ramasser
+struct Goal {};                                               // objectif = fin de niveau
 
 class Editor : public Application {
 public:
@@ -80,6 +82,9 @@ private:
     std::string m_status;
     float m_statusTimer = 0.0f;
     json m_snapshot; // scène sauvegardée au lancement du Play (pour Stop)
+    int m_score = 0;
+    bool m_won = false;
+    bool m_lost = false;
 
     ::RenderTexture2D m_target{};
     bool m_layoutInit = false;
@@ -164,6 +169,22 @@ private:
         m_reg.add<Patrol>(e, Patrol{});
         m_selected = e; setStatus("Ennemi cree (patrouille en Play)"); return e;
     }
+    // Pièce à ramasser : RectShape SANS AABB (pas un mur solide, juste un trigger).
+    Entity spawnCoin(Vec2 pos) {
+        Entity e = m_reg.create();
+        m_reg.add<Transform2D>(e, Transform2D{pos});
+        m_reg.add<RectShape>(e, RectShape{{26.0f, 26.0f}, mjv::Color{253, 203, 0, 255}});
+        m_reg.add<Collectible>(e, Collectible{});
+        m_selected = e; setStatus("Piece creee"); return e;
+    }
+    // Objectif de fin de niveau (trigger, sans collision physique).
+    Entity spawnGoal(Vec2 pos) {
+        Entity e = m_reg.create();
+        m_reg.add<Transform2D>(e, Transform2D{pos});
+        m_reg.add<RectShape>(e, RectShape{{34.0f, 90.0f}, mjv::Color{120, 230, 120, 255}});
+        m_reg.add<Goal>(e, Goal{});
+        m_selected = e; setStatus("Objectif cree"); return e;
+    }
     Entity spawnSprite(const std::string& path, Vec2 pos) {
         ::Texture2D& t = thumbnail(path);
         const Vec2 size{static_cast<float>(t.width), static_cast<float>(t.height)};
@@ -188,10 +209,17 @@ private:
         spawnPlatform({780.0f, 410.0f});
         spawnPlatform({1150.0f, 500.0f});
         spawnPlatform({1550.0f, 380.0f});
-        // Caisses, ennemi, joueur.
+        // Caisses, ennemi.
         spawnCrate({900.0f, 200.0f});
         spawnCrate({950.0f, 120.0f});
         spawnEnemy({1150.0f, 440.0f});
+        // Pièces à ramasser le long du parcours.
+        spawnCoin({420.0f, 470.0f});
+        spawnCoin({780.0f, 360.0f});
+        spawnCoin({1150.0f, 450.0f});
+        spawnCoin({1550.0f, 330.0f});
+        // Objectif de fin, et le joueur au départ.
+        spawnGoal({2000.0f, 620.0f});
         spawnPlayer({200.0f, 200.0f});
     }
 
@@ -205,6 +233,7 @@ private:
     void play() {
         m_snapshot = sceneToJson();
         m_playing = true;
+        m_score = 0; m_won = false; m_lost = false;
         setStatus("Lecture - Stop pour revenir a l'edition");
     }
     void stop() {
@@ -223,6 +252,7 @@ private:
 
     // ----------------------------------------------------------- systèmes (Play)
     void controlSystem() {
+        if (m_won || m_lost) return; // partie terminée : on fige le joueur
         if (ImGui::GetIO().WantCaptureKeyboard) return;
         const int L = (Input::isDown(Key::Left)  || Input::isDown(Key::A) || Input::isDown(Key::Q)) ? 1 : 0;
         const int R = (Input::isDown(Key::Right) || Input::isDown(Key::D)) ? 1 : 0;
@@ -243,6 +273,34 @@ private:
         });
     }
 
+    // Ramassage des pièces, contact ennemi (perdu), objectif atteint (gagné).
+    void gameplaySystem() {
+        if (m_won || m_lost) return;
+        struct Box { Vec2 c; Vec2 h; };
+        std::vector<Box> players;
+        m_reg.view<Controllable, Transform2D>([&](Entity e, Controllable&, Transform2D& t) {
+            players.push_back({t.position, halfExtents(e)});
+        });
+        if (players.empty()) return;
+
+        std::vector<Entity> picked;
+        m_reg.view<Collectible, Transform2D>([&](Entity e, Collectible& c, Transform2D& t) {
+            const Vec2 h = halfExtents(e);
+            for (const Box& p : players)
+                if (aabbOverlap(p.c, p.h, t.position, h)) { m_score += c.points; picked.push_back(e); break; }
+        });
+        for (Entity e : picked) m_reg.destroy(e);
+
+        m_reg.view<Patrol, Transform2D>([&](Entity e, Patrol&, Transform2D& t) {
+            const Vec2 h = halfExtents(e);
+            for (const Box& p : players) if (aabbOverlap(p.c, p.h, t.position, h)) m_lost = true;
+        });
+        m_reg.view<Goal, Transform2D>([&](Entity e, Goal&, Transform2D& t) {
+            const Vec2 h = halfExtents(e);
+            for (const Box& p : players) if (aabbOverlap(p.c, p.h, t.position, h)) m_won = true;
+        });
+    }
+
     // ----------------------------------------------------------------- update
     void onUpdate(float dt) override {
         if (m_statusTimer > 0.0f) m_statusTimer -= dt;
@@ -252,6 +310,7 @@ private:
             controlSystem();
             patrolSystem(dt);
             physicsStep(m_reg, std::min(dt, 0.033f), {0.0f, kGravity});
+            gameplaySystem();
         }
         renderSceneToTexture();
     }
@@ -312,6 +371,15 @@ private:
                                                    h * 2.0f + Vec2{8, 8}, Colors::Yellow, 2.5f);
         }
         if (useCam) EndMode2D();
+
+        // HUD du jeu (en repère écran, hors caméra).
+        if (m_playing) {
+            Graphics::drawText("Score: " + std::to_string(m_score), {20.0f, 18.0f}, 30, Colors::White);
+            if (m_won)
+                Graphics::drawText("VICTOIRE !", {kWorldW * 0.5f - 150.0f, kWorldH * 0.5f - 40.0f}, 64, mjv::Color{120, 230, 120, 255});
+            else if (m_lost)
+                Graphics::drawText("PERDU", {kWorldW * 0.5f - 90.0f, kWorldH * 0.5f - 40.0f}, 64, mjv::Color{230, 80, 80, 255});
+        }
         EndTextureMode();
     }
 
@@ -362,6 +430,8 @@ private:
                 if (ImGui::MenuItem("Plateforme")) spawnPlatform({400.0f, 350.0f});
                 if (ImGui::MenuItem("Caisse"))     spawnCrate({450.0f, 150.0f});
                 if (ImGui::MenuItem("Ennemi"))     spawnEnemy({500.0f, 200.0f});
+                if (ImGui::MenuItem("Piece"))      spawnCoin({550.0f, 300.0f});
+                if (ImGui::MenuItem("Objectif"))   spawnGoal({600.0f, 250.0f});
                 ImGui::Separator();
                 if (ImGui::MenuItem("Entite vide")) newEntity();
                 ImGui::EndMenu();
@@ -411,6 +481,8 @@ private:
         std::string s = "  [";
         if (m_reg.has<Controllable>(e)) s += "J";
         if (m_reg.has<Patrol>(e))       s += "E";
+        if (m_reg.has<Collectible>(e))  s += "$";
+        if (m_reg.has<Goal>(e))         s += "O";
         if (m_reg.has<RigidBody>(e))    s += "P";
         if (m_reg.has<SpriteAsset>(e))  s += "S";
         if (m_reg.has<RectShape>(e))    s += "R";
@@ -475,6 +547,12 @@ private:
             ImGui::DragFloat("vitesse", &p.speed, 1.0f, 0.0f, 600.0f);
             ImGui::DragFloat("portee", &p.range, 1.0f, 0.0f, 1200.0f);
         }
+        if (m_reg.has<Collectible>(m_selected) && ImGui::CollapsingHeader("Piece (a ramasser)", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::DragInt("points", &m_reg.get<Collectible>(m_selected).points, 1.0f, 0, 100000);
+        }
+        if (m_reg.has<Goal>(m_selected) && ImGui::CollapsingHeader("Objectif (fin de niveau)", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::TextDisabled("Le joueur gagne en le touchant.");
+        }
 
         ImGui::Separator();
         ImGui::TextDisabled("Ajouter un comportement :");
@@ -483,6 +561,9 @@ private:
         if (!m_reg.has<Controllable>(m_selected) && ImGui::Button("+ Joueur"))    { m_reg.add<Controllable>(m_selected); if (!m_reg.has<RigidBody>(m_selected)) m_reg.add<RigidBody>(m_selected); }
         ImGui::SameLine();
         if (!m_reg.has<Patrol>(m_selected)       && ImGui::Button("+ Ennemi"))    { m_reg.add<Patrol>(m_selected); if (!m_reg.has<RigidBody>(m_selected)) m_reg.add<RigidBody>(m_selected); }
+        if (!m_reg.has<Collectible>(m_selected)  && ImGui::Button("+ Piece"))     m_reg.add<Collectible>(m_selected);
+        ImGui::SameLine();
+        if (!m_reg.has<Goal>(m_selected)         && ImGui::Button("+ Objectif"))  m_reg.add<Goal>(m_selected);
         if (!m_reg.has<RectShape>(m_selected)     && ImGui::Button("+ Rectangle")) m_reg.add<RectShape>(m_selected, RectShape{{40, 40}, Colors::Blue});
         if (!m_reg.has<AABB>(m_selected)          && ImGui::Button("+ Collision")) m_reg.add<AABB>(m_selected, AABB{halfExtents(m_selected)});
         ImGui::End();
@@ -545,6 +626,8 @@ private:
             if (m_reg.has<RigidBody>(e))   je["RigidBody"] = {{"gravityScale", m_reg.get<RigidBody>(e).gravityScale}};
             if (m_reg.has<Controllable>(e)){ Controllable& c = m_reg.get<Controllable>(e); je["Controllable"] = {{"speed", c.speed}, {"jumpForce", c.jumpForce}}; }
             if (m_reg.has<Patrol>(e))      { Patrol& p = m_reg.get<Patrol>(e); je["Patrol"] = {{"speed", p.speed}, {"range", p.range}}; }
+            if (m_reg.has<Collectible>(e)) je["Collectible"] = {{"points", m_reg.get<Collectible>(e).points}};
+            if (m_reg.has<Goal>(e))        je["Goal"] = true;
             if (m_reg.has<SpriteAsset>(e)) { SpriteAsset& sp = m_reg.get<SpriteAsset>(e); je["SpriteAsset"] = {{"path", sp.path}, {"size", vecToJ(sp.size)}}; }
             doc["entities"].push_back(je);
         }
@@ -562,6 +645,8 @@ private:
             if (je.contains("RigidBody"))   { RigidBody rb; rb.gravityScale = je["RigidBody"]["gravityScale"].get<float>(); m_reg.add<RigidBody>(e, rb); }
             if (je.contains("Controllable")){ const json& j = je["Controllable"]; m_reg.add<Controllable>(e, Controllable{j["speed"].get<float>(), j["jumpForce"].get<float>()}); }
             if (je.contains("Patrol"))      { const json& j = je["Patrol"]; Patrol p; p.speed = j["speed"].get<float>(); p.range = j["range"].get<float>(); m_reg.add<Patrol>(e, p); }
+            if (je.contains("Collectible")) m_reg.add<Collectible>(e, Collectible{je["Collectible"]["points"].get<int>()});
+            if (je.contains("Goal"))        m_reg.add<Goal>(e, Goal{});
             if (je.contains("SpriteAsset")) { const json& j = je["SpriteAsset"]; m_reg.add<SpriteAsset>(e, SpriteAsset{j["path"].get<std::string>(), jToVec(j["size"])}); }
         }
     }
