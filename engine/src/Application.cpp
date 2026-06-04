@@ -1,5 +1,6 @@
 #include "mjv/Application.hpp"
 
+#include <cstdlib>
 #include <utility>
 
 #include "mjv/Audio.hpp"
@@ -39,6 +40,8 @@ Vec2 Application::windowSize() const {
 
 void Application::run() {
     onStart();
+    const char* shotPath = std::getenv("MJV_SHOT"); // capture auto si défini
+    int frame = 0;
     while (!WindowShouldClose()) {
         const float dt = GetFrameTime();
         Audio::update();
@@ -47,7 +50,9 @@ void Application::run() {
         BeginDrawing();
         Graphics::clear(m_config.clearColor);
         onRender();
+        if (shotPath && frame == 90) Graphics::screenshot(shotPath);
         EndDrawing();
+        ++frame;
     }
 }
 

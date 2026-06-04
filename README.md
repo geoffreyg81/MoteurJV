@@ -12,6 +12,15 @@ Un moteur de jeu open source, léger et moderne — en C++ (**2D et 3D**).
 > Côté **3D** : caméra perspective, **chargement de modèles** (.glb/.gltf/.obj),
 > **éclairage directionnel** — démo collectathon avec modèles Kenney CC0.
 
+![L'éditeur visuel no-code de MoteurJV](docs/editor.png)
+
+*L'éditeur façon Unity : hiérarchie colorée par type, viewport, inspecteur, panneau
+d'assets — on construit ET on joue un jeu **sans écrire de code**.*
+
+![Démo 3D de MoteurJV](docs/demo3d.png)
+
+*La 3D : modèles **Kenney CC0**, éclairage directionnel, petit collectathon jouable.*
+
 ## Philosophie
 
 Commencer **petit et focalisé**. On ne réécrit pas Unity en un week-end. La stack

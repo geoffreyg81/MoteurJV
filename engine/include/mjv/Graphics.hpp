@@ -17,4 +17,6 @@ void drawCircle(Vec2 center, float radius, Color c);
 void drawRectangleOutlineCentered(Vec2 center, Vec2 size, Color c, float thickness = 2.0f);
 void drawText(const std::string& text, Vec2 pos, int fontSize, Color c);
 
+void screenshot(const std::string& path); // enregistre une capture PNG
+
 } // namespace mjv::Graphics

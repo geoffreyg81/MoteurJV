@@ -37,4 +37,8 @@ void drawText(const std::string& text, Vec2 pos, int fontSize, Color c) {
     DrawText(text.c_str(), static_cast<int>(pos.x), static_cast<int>(pos.y), fontSize, toRaylib(c));
 }
 
+void screenshot(const std::string& path) {
+    TakeScreenshot(path.c_str());
+}
+
 } // namespace mjv::Graphics
