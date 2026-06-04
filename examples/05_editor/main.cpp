@@ -111,6 +111,11 @@ private:
     int m_score = 0;
     bool m_won = false;
     bool m_lost = false;
+    bool m_titleActive = false;   // écran-titre au lancement du Play
+    bool m_paused = false;
+    int m_menuIndex = 0;
+    std::string m_levelName = "Mon niveau";
+    bool m_titleScreen = true;
     Vec2 m_playerSpawn;
     float m_invuln = 0.0f;       // invincibilité après un coup (s)
     float m_timeLimit = 0.0f;    // limite de temps du niveau (0 = aucune)
@@ -140,6 +145,8 @@ private:
     float m_shake = 0.0f;
 
     void onStart() override {
+        SetExitKey(KEY_NULL); // Echap sert au menu pause, pas à fermer
+        std::srand(1234);
         rlImGuiSetup(true);
         ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
         applyDarkTheme();
@@ -323,6 +330,7 @@ private:
         m_playing = true;
         m_score = 0; m_won = false; m_lost = false; m_invuln = 0.0f;
         m_particles.clear(); m_shake = 0.0f;
+        m_paused = false; m_menuIndex = 0; m_titleActive = m_titleScreen;
         m_timeLeft = m_timeLimit;
         Vec2 sp; if (firstPlayer(sp)) m_playerSpawn = sp;
         setStatus("Lecture - Stop pour revenir a l'edition");
@@ -332,6 +340,20 @@ private:
         m_particles.clear(); m_shake = 0.0f;
         jsonToScene(m_snapshot);
         setStatus("Edition");
+    }
+    // Navigation d'un menu au clavier ; renvoie l'option choisie (ou -1).
+    int menuNav(int count) {
+        if (Input::isPressed(Key::Up)   || Input::isPressed(Key::W) || Input::isPressed(Key::Z)) m_menuIndex = (m_menuIndex + count - 1) % count;
+        if (Input::isPressed(Key::Down) || Input::isPressed(Key::S)) m_menuIndex = (m_menuIndex + 1) % count;
+        if (Input::isPressed(Key::Enter) || Input::isPressed(Key::Space)) return m_menuIndex;
+        return -1;
+    }
+    void restartLevel() {
+        jsonToScene(m_snapshot);
+        m_score = 0; m_won = false; m_lost = false; m_paused = false; m_invuln = 0.0f;
+        m_particles.clear(); m_shake = 0.0f; m_menuIndex = 0; m_titleActive = false;
+        m_timeLeft = m_timeLimit;
+        Vec2 sp; if (firstPlayer(sp)) m_playerSpawn = sp;
     }
 
     bool firstPlayer(Vec2& out) {
@@ -479,25 +501,31 @@ private:
         if (!m_playing) { handleShortcuts(); handleViewportInteraction(); }
 
         if (m_playing) {
-            // Fin de partie (Entree) : niveau suivant si gagné et s'il existe, sinon rejouer.
-            if ((m_won || m_lost) && Input::isPressed(Key::Enter)) {
-                if (m_won && hasNextLevel()) advanceLevel();
-                else { stop(); play(); }
-                renderSceneToTexture(); return;
+            if (!m_titleActive && !m_won && !m_lost && Input::isPressed(Key::Escape)) { m_paused = !m_paused; m_menuIndex = 0; }
+
+            if (m_titleActive) {                       // --- écran titre ---
+                if (Input::isPressed(Key::Enter) || Input::isPressed(Key::Space)) m_titleActive = false;
+            } else if (m_paused) {                     // --- menu pause ---
+                const int sel = menuNav(3);
+                if (sel == 0) m_paused = false;
+                else if (sel == 1) restartLevel();
+                else if (sel == 2) { stop(); renderSceneToTexture(); return; }
+            } else if (m_won || m_lost) {              // --- menu de fin ---
+                const bool next = m_won && hasNextLevel();
+                const int sel = menuNav(2);
+                if (sel == 0) { if (next) advanceLevel(); else restartLevel(); }
+                else if (sel == 1) { stop(); renderSceneToTexture(); return; }
+            } else {                                   // --- en jeu ---
+                if (m_invuln > 0.0f) m_invuln -= dt;
+                if (m_timeLimit > 0.0f) { m_timeLeft -= dt; if (m_timeLeft <= 0.0f) { m_timeLeft = 0.0f; lose(); } }
+                controlSystem(dt);
+                patrolSystem(dt);
+                physicsStep(m_reg, std::min(dt, 0.033f), {0.0f, kGravity});
+                animationSystem(dt);
+                gameplaySystem();
+                particleSystem(dt);
+                m_shake = std::max(0.0f, m_shake - dt);
             }
-            if (m_invuln > 0.0f) m_invuln -= dt;
-            // Limite de temps.
-            if (m_timeLimit > 0.0f && !m_won && !m_lost) {
-                m_timeLeft -= dt;
-                if (m_timeLeft <= 0.0f) { m_timeLeft = 0.0f; lose(); }
-            }
-            controlSystem(dt);
-            patrolSystem(dt);
-            physicsStep(m_reg, std::min(dt, 0.033f), {0.0f, kGravity});
-            animationSystem(dt);
-            gameplaySystem();
-            particleSystem(dt);
-            m_shake = std::max(0.0f, m_shake - dt);
         }
         renderSceneToTexture();
     }
@@ -687,34 +715,49 @@ private:
         Graphics::drawText(s, {x, y}, size, col);
     }
 
+    // Liste d'options de menu centrée, l'option courante surlignée.
+    void drawMenuOptions(const char* const opts[], int count, float startY) {
+        for (int i = 0; i < count; ++i) {
+            const bool seld = (i == m_menuIndex);
+            const std::string s = seld ? ("> " + std::string(opts[i]) + " <") : std::string(opts[i]);
+            drawCentered(s, startY + i * 48.0f, 34, seld ? mjv::Color{255, 230, 120, 255} : mjv::Color{200, 205, 220, 255});
+        }
+    }
+
     void drawHud() {
         const mjv::Color white{245, 245, 245, 255};
         const mjv::Color shadow{0, 0, 0, 140};
-        // Score (avec ombre pour la lisibilité).
-        Graphics::drawText("Score : " + std::to_string(m_score), {26.0f, 22.0f}, 38, shadow);
-        Graphics::drawText("Score : " + std::to_string(m_score), {24.0f, 20.0f}, 38, white);
-        // Vies.
-        const int lives = playerLives();
-        if (lives >= 0) Graphics::drawText("Vies : " + std::to_string(lives), {24.0f, 66.0f}, 30, white);
-        // Temps.
-        if (m_timeLimit > 0.0f)
-            Graphics::drawText("Temps : " + std::to_string(static_cast<int>(std::ceil(m_timeLeft))),
-                               {24.0f, 104.0f}, 30, white);
-        // Niveau (en haut à droite).
-        Graphics::drawText("Niveau " + std::to_string(m_levelNum), {kWorldW - 210.0f, 22.0f}, 30, white);
 
-        // Écran de fin stylé.
-        if (m_won || m_lost) {
-            Graphics::drawRectangle({0.0f, 0.0f}, {kWorldW, kWorldH}, mjv::Color{12, 14, 20, 175});
-            const float cy = kWorldH * 0.5f;
+        if (!m_titleActive) { // HUD de jeu
+            Graphics::drawText("Score : " + std::to_string(m_score), {26.0f, 22.0f}, 38, shadow);
+            Graphics::drawText("Score : " + std::to_string(m_score), {24.0f, 20.0f}, 38, white);
+            const int lives = playerLives();
+            if (lives >= 0) Graphics::drawText("Vies : " + std::to_string(lives), {24.0f, 66.0f}, 30, white);
+            if (m_timeLimit > 0.0f)
+                Graphics::drawText("Temps : " + std::to_string(static_cast<int>(std::ceil(m_timeLeft))), {24.0f, 104.0f}, 30, white);
+            Graphics::drawText("Niveau " + std::to_string(m_levelNum), {kWorldW - 210.0f, 22.0f}, 30, white);
+        }
+
+        const float cy = kWorldH * 0.5f;
+        if (m_titleActive) {                    // écran-titre
+            Graphics::drawRectangle({0.0f, 0.0f}, {kWorldW, kWorldH}, mjv::Color{12, 14, 20, 200});
+            drawCentered(m_levelName, cy - 100.0f, 86, mjv::Color{120, 200, 255, 255});
+            drawCentered("Appuie sur Entree pour jouer", cy + 24.0f, 32, white);
+            drawCentered("Fleches / ZQSD : bouger     Espace : sauter", cy + 72.0f, 22, mjv::Color{180, 185, 200, 255});
+        } else if (m_paused) {                  // menu pause
+            Graphics::drawRectangle({0.0f, 0.0f}, {kWorldW, kWorldH}, mjv::Color{12, 14, 20, 185});
+            drawCentered("PAUSE", cy - 130.0f, 90, mjv::Color{255, 220, 120, 255});
+            const char* opts[3] = {"Reprendre", "Recommencer", "Quitter (editer)"};
+            drawMenuOptions(opts, 3, cy - 20.0f);
+            drawCentered("Fleches + Entree pour choisir", cy + 160.0f, 22, mjv::Color{150, 155, 170, 255});
+        } else if (m_won || m_lost) {           // menu de fin
             const bool next = m_won && hasNextLevel();
-            if (next)        drawCentered("Niveau termine !", cy - 110.0f, 90, mjv::Color{120, 230, 120, 255});
-            else if (m_won)  drawCentered("VICTOIRE !", cy - 110.0f, 96, mjv::Color{120, 230, 120, 255});
-            else             drawCentered("PERDU", cy - 110.0f, 96, mjv::Color{235, 90, 90, 255});
-            drawCentered("Score : " + std::to_string(m_score), cy + 10.0f, 44, white);
-            drawCentered(next ? "Entree : niveau suivant       Stop : editer"
-                              : "Entree : rejouer       Stop : editer",
-                         cy + 80.0f, 28, mjv::Color{180, 185, 200, 255});
+            Graphics::drawRectangle({0.0f, 0.0f}, {kWorldW, kWorldH}, mjv::Color{12, 14, 20, 185});
+            const std::string title = next ? "Niveau termine !" : (m_won ? "VICTOIRE !" : "PERDU");
+            drawCentered(title, cy - 150.0f, 90, m_won ? mjv::Color{120, 230, 120, 255} : mjv::Color{235, 90, 90, 255});
+            drawCentered("Score : " + std::to_string(m_score), cy - 64.0f, 40, white);
+            const char* opts[2] = {next ? "Niveau suivant" : "Rejouer", "Quitter (editer)"};
+            drawMenuOptions(opts, 2, cy + 10.0f);
         }
     }
 
@@ -800,6 +843,11 @@ private:
                 if (ImGui::MenuItem("Charger ce numero")) loadLevel(m_levelNum);
                 if (ImGui::MenuItem("Sauvegarder sous ce numero")) saveLevel();
                 ImGui::Separator();
+                char nbuf[64];
+                std::snprintf(nbuf, sizeof(nbuf), "%s", m_levelName.c_str());
+                ImGui::SetNextItemWidth(200);
+                if (ImGui::InputText("Nom du niveau", nbuf, sizeof(nbuf))) m_levelName = nbuf;
+                ImGui::Checkbox("Ecran titre au lancement", &m_titleScreen);
                 ImGui::SetNextItemWidth(160);
                 ImGui::DragFloat("Temps limite (s)", &m_timeLimit, 1.0f, 0.0f, 999.0f, "%.0f");
                 ImGui::TextDisabled("0 = pas de limite");
@@ -1053,6 +1101,8 @@ private:
         loadLevel(m_levelNum + 1);
         m_snapshot = sceneToJson();
         m_won = false; m_lost = false; m_invuln = 0.0f;
+        m_paused = false; m_menuIndex = 0; m_particles.clear(); m_shake = 0.0f;
+        m_titleActive = m_titleScreen;
         m_timeLeft = m_timeLimit;
         Vec2 sp; if (firstPlayer(sp)) m_playerSpawn = sp;
         m_score = keep;
@@ -1111,6 +1161,8 @@ private:
     json sceneToJson() {
         json doc; doc["entities"] = json::array();
         doc["timeLimit"] = m_timeLimit;
+        doc["name"] = m_levelName;
+        doc["titleScreen"] = m_titleScreen;
         for (Entity e : m_reg.entities()) doc["entities"].push_back(entityToJson(e));
         return doc;
     }
@@ -1118,6 +1170,8 @@ private:
     void jsonToScene(const json& doc) {
         m_reg.clear(); m_selected = NullEntity;
         m_timeLimit = doc.value("timeLimit", 0.0f);
+        m_levelName = doc.value("name", std::string("Mon niveau"));
+        m_titleScreen = doc.value("titleScreen", true);
         if (!doc.contains("entities")) return;
         for (const json& je : doc["entities"]) createEntityFromJson(je);
     }

@@ -440,8 +440,8 @@ matière à contributions et à versions futures.
 - [ ] **Arbres de comportement** ou graphes d'états visuels
 
 ### 🎬 Interface & menus (in-game)
-- [ ] **Système d'UI** : boutons, labels, barres de vie, ancrage à l'écran
-- [ ] **Menus** : titre, pause, options, game over (sans code)
+- [x] **Menus** : écran-titre, pause (Échap), game over / victoire — navigables au clavier, sans code
+- [ ] **Système d'UI** générique : boutons, labels, barres de vie, ancrage à l'écran
 - [ ] **Dialogues** et boîtes de texte (cinématiques simples)
 - [ ] **Transitions** d'écran (fondu, volet) entre niveaux
 
