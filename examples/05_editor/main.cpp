@@ -51,6 +51,7 @@ struct Controllable {                                         // "joueur"
     bool wasGround = true;
 };
 struct Particle { Vec2 pos, vel; float life = 0, maxLife = 0; mjv::Color color; };
+struct Tile {};                                               // tuile peinte (pour effacer/repérer)
 struct Patrol {                                               // ennemi va-et-vient
     float speed = 90.0f;
     float range = 140.0f;
@@ -143,6 +144,9 @@ private:
     bool m_hasClipboard = false;
     std::vector<Particle> m_particles;
     float m_shake = 0.0f;
+    bool m_paintMode = false;
+    bool m_eraseMode = false;
+    std::string m_paintTile = std::string(MJV_ASSET_DIR) + "/tile.png";
 
     void onStart() override {
         SetExitKey(KEY_NULL); // Echap sert au menu pause, pas à fermer
@@ -580,6 +584,30 @@ private:
         if (IsKeyPressed(KEY_DELETE))    deleteSelected();
     }
 
+    // Pose (ou efface) une tuile sur la cellule de grille sous le point monde.
+    void paintAt(Vec2 world) {
+        float cell = static_cast<float>(thumbnail(m_paintTile).width);
+        if (cell < 1.0f) cell = 64.0f;
+        const Vec2 c{std::round(world.x / cell) * cell, std::round(world.y / cell) * cell};
+        Entity found = NullEntity;
+        m_reg.view<Tile, Transform2D>([&](Entity e, Tile&, Transform2D& t) {
+            if (std::abs(t.position.x - c.x) < cell * 0.5f && std::abs(t.position.y - c.y) < cell * 0.5f) found = e;
+        });
+        if (m_eraseMode) {
+            if (found != NullEntity) { if (m_selected == found) m_selected = NullEntity; m_reg.destroy(found); }
+            return;
+        }
+        if (found != NullEntity) return; // déjà une tuile ici
+        ::Texture2D& tex = thumbnail(m_paintTile);
+        const Vec2 size{static_cast<float>(tex.width), static_cast<float>(tex.height)};
+        Entity e = m_reg.create();
+        m_reg.add<Transform2D>(e, Transform2D{c});
+        m_reg.add<SpriteAsset>(e, SpriteAsset{m_paintTile, size});
+        m_reg.add<AABB>(e, AABB{size * 0.5f});
+        m_reg.add<Tile>(e, Tile{});
+        m_reg.add<Name>(e, Name{"Tuile"});
+    }
+
     void handleViewportInteraction() {
         if (m_vpHovered) {
             // Zoom à la molette.
@@ -591,6 +619,14 @@ private:
                 m_camTarget.x -= d.x * (kWorldW / m_vpSize.x) / m_zoom;
                 m_camTarget.y -= d.y * (kWorldH / m_vpSize.y) / m_zoom;
             }
+        }
+        // Mode peinture de tuiles : clic gauche = poser/effacer sur la grille.
+        if (m_paintMode) {
+            if (m_vpHovered) {
+                if (Input::mousePressed(Mouse::Left)) pushUndo();
+                if (Input::mouseDown(Mouse::Left)) paintAt(screenToWorld(Input::mousePosition()));
+            }
+            return;
         }
         if (!m_vpHovered) { if (Input::mouseReleased(Mouse::Left)) { m_dragging = false; m_resizeHandle = -1; } return; }
 
@@ -831,6 +867,13 @@ private:
                 ImGui::SetNextItemWidth(120);
                 ImGui::DragFloat("pas de grille", &m_grid, 1.0f, 4.0f, 256.0f, "%.0f");
                 ImGui::Separator();
+                ImGui::Checkbox("Mode peinture de tuiles", &m_paintMode);
+                if (m_paintMode) {
+                    ImGui::Checkbox("Gomme (effacer)", &m_eraseMode);
+                    ImGui::TextDisabled("Pinceau = clique une image dans Assets");
+                    ImGui::TextDisabled("Clic gauche dans la scene = poser/effacer");
+                }
+                ImGui::Separator();
                 if (ImGui::MenuItem("Recentrer la vue")) { m_camTarget = {kWorldW * 0.5f, kWorldH * 0.5f}; m_zoom = 1.0f; }
                 ImGui::TextDisabled("Clic droit : deplacer la vue");
                 ImGui::TextDisabled("Molette : zoom");
@@ -1058,7 +1101,10 @@ private:
             ImGui::BeginGroup();
             if (ext == ".png" || ext == ".jpg") {
                 ::Texture2D& t = thumbnail(path);
-                if (rlImGuiImageButtonSize(name.c_str(), &t, ::Vector2{64, 64})) { pushUndo(); spawnSprite(path, {kWorldW * 0.5f, kWorldH * 0.5f}); }
+                if (rlImGuiImageButtonSize(name.c_str(), &t, ::Vector2{64, 64})) {
+                    if (m_paintMode) { m_paintTile = path; setStatus("Pinceau : " + name); }
+                    else { pushUndo(); spawnSprite(path, {kWorldW * 0.5f, kWorldH * 0.5f}); }
+                }
                 if (ImGui::BeginDragDropSource()) {
                     ImGui::SetDragDropPayload("ASSET_IMG", path.c_str(), path.size() + 1);
                     rlImGuiImageSize(&t, 48, 48); ImGui::Text("%s", name.c_str());
@@ -1121,6 +1167,7 @@ private:
         if (m_reg.has<Patrol>(e))      { Patrol& p = m_reg.get<Patrol>(e); je["Patrol"] = {{"speed", p.speed}, {"range", p.range}}; }
         if (m_reg.has<Collectible>(e)) je["Collectible"] = {{"points", m_reg.get<Collectible>(e).points}};
         if (m_reg.has<Goal>(e))        je["Goal"] = true;
+        if (m_reg.has<Tile>(e))        je["Tile"] = true;
         if (m_reg.has<Health>(e))      je["Health"] = {{"lives", m_reg.get<Health>(e).lives}};
         if (m_reg.has<SpriteAsset>(e)) { SpriteAsset& sp = m_reg.get<SpriteAsset>(e); je["SpriteAsset"] = {{"path", sp.path}, {"size", vecToJ(sp.size)}}; }
         if (m_reg.has<AnimSprite>(e)) {
@@ -1144,6 +1191,7 @@ private:
         if (je.contains("Patrol"))      { const json& j = je["Patrol"]; Patrol p; p.speed = j["speed"].get<float>(); p.range = j["range"].get<float>(); m_reg.add<Patrol>(e, p); }
         if (je.contains("Collectible")) m_reg.add<Collectible>(e, Collectible{je["Collectible"]["points"].get<int>()});
         if (je.contains("Goal"))        m_reg.add<Goal>(e, Goal{});
+        if (je.contains("Tile"))        m_reg.add<Tile>(e, Tile{});
         if (je.contains("Health"))      m_reg.add<Health>(e, Health{je["Health"]["lives"].get<int>()});
         if (je.contains("SpriteAsset")) { const json& j = je["SpriteAsset"]; m_reg.add<SpriteAsset>(e, SpriteAsset{j["path"].get<std::string>(), jToVec(j["size"])}); }
         if (je.contains("AnimSprite")) {

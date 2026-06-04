@@ -395,7 +395,7 @@ matière à contributions et à versions futures.
 - [x] **Renommer** les entités (nom dans l'inspecteur et la hiérarchie) — fait
 - [x] **Verrouiller / masquer** des entités — fait ; dossiers dans la hiérarchie (à venir)
 - [ ] **Multi-sélection** et édition groupée
-- [ ] **Mode peinture de tuiles** (poser/effacer en glissant, comme un tilemap)
+- [x] **Mode peinture de tuiles** (poser/effacer en glissant sur la grille) — fait
 - [ ] **Pivoter** les entités (gizmo de rotation)
 - [ ] **Recherche/filtre** dans la hiérarchie
 - [ ] **Aperçu des animations** dans l'inspecteur
