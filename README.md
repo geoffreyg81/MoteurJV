@@ -1,13 +1,16 @@
 # MoteurJV
 
-Un moteur de jeu 2D open source, léger et moderne — en C++.
+Un moteur de jeu open source, léger et moderne — en C++ (**2D et 3D**).
 
-> État : **v1.0** 🎉 — Moteur 2D complet avec un **éditeur visuel no-code** : on
+> État : **v1.2** 🎉 — Moteur **2D + 3D** avec un **éditeur visuel no-code** : on
 > construit ET on joue un jeu **entièrement à la souris, sans écrire de code**.
-> Sous le capot : **ECS**, rendu, input (clavier + souris), **collisions AABB**,
-> **sprites animés**, **audio**, **mini-physique** (gravité + saut), **scripting
-> Lua** (ECS exposé) et l'**éditeur façon Unity** (hiérarchie, inspecteur live,
-> viewport, glisser-déposer d'assets, caméra, Play/Stop, sauvegarde JSON).
+> Côté 2D : **ECS**, rendu, input (clavier + souris), **collisions AABB**, **sprites
+> animés**, **audio**, **physique** (gravité, saut, corps poussables), **scripting
+> Lua** (ECS exposé) et un **éditeur façon Unity** (hiérarchie colorée, inspecteur
+> live, viewport, glisser-déposer d'assets, peinture de tuiles, **IA** ennemie,
+> particules, menus in-game, options touches/langue/son, multi-niveaux, JSON).
+> Côté **3D** : caméra perspective, **chargement de modèles** (.glb/.gltf/.obj),
+> **éclairage directionnel** — démo collectathon avec modèles Kenney CC0.
 
 ## Philosophie
 
@@ -73,7 +76,7 @@ MoteurJV/
 │   │   ├── Audio.hpp        #   mjv::Audio, Sound, Music
 │   │   ├── Collision.hpp    #   AABB : overlap + résolution (MTV)
 │   │   ├── Physics.hpp      #   mini-physique : gravité + saut + AABB (physicsStep)
-│   │   ├── Render3D.hpp     #   3D : caméra perspective + primitives (cube, sphère, sol, grille)
+│   │   ├── Render3D.hpp     #   3D : caméra, primitives, modèles (.glb/.obj) + éclairage
 │   │   ├── ecs/Registry.hpp #   ECS : Entity, Component, view<...> (systèmes)
 │   │   ├── Math.hpp         #   Vec2, Transform2D, Rect
 │   │   └── Color.hpp
@@ -212,6 +215,29 @@ en édition, suivi du joueur en jeu).
 
 **Phase 3 complète** (hiérarchie + inspecteur + viewport souris + glisser-déposer
 d'assets + sérialisation + look Unity dockable).
+
+## 3D (`examples/06_3d`)
+
+Le moteur fait aussi de la **3D**. L'API `mjv::Graphics3D` (raylib caché) fournit une
+caméra perspective, des primitives et le **chargement de modèles** (`mjv::Model`,
+formats `.glb`/`.gltf`/`.obj` avec textures), plus un **éclairage directionnel**.
+
+La démo est un petit **collectathon 3D** : un personnage qui marche sur un sol
+d'herbe, ramasse des pièces dorées et atteint un drapeau, avec arbres, lumière et
+caméra 3e personne. Les modèles viennent du pack **Platformer Kit de Kenney**
+(domaine public **CC0**) :
+
+```bash
+bash tools/fetch_kenney3d.sh   # télécharge les modèles 3D (non inclus dans le dépôt)
+./build.sh run 3d
+```
+
+```cpp
+mjv::Model character;
+character.load("character.glb");
+// ... dans onRender, entre Graphics3D::begin(cam) / end() :
+character.draw(position, /*scale*/1.0f, /*yaw*/yawDeg);
+```
 
 ## Scripting Lua (`examples/03_lua`)
 
@@ -369,9 +395,9 @@ matière à contributions et à versions futures.
 
 ### 🎲 3D
 - [x] **Fondations 3D** : caméra perspective + primitives (cube, sphère, sol, grille) — fait (`Render3D`)
-- [ ] **Chargement de modèles** 3D (`.obj`, `.gltf`)
-- [ ] **Textures & matériaux** sur les modèles
-- [ ] **Éclairage** (lumières directionnelles/ponctuelles, ombres)
+- [x] **Chargement de modèles** 3D (`.glb` / `.gltf` / `.obj`) + textures — fait (`mjv::Model`)
+- [x] **Éclairage directionnel** (shader) — fait ; lumières ponctuelles & ombres à venir
+- [ ] **Matériaux** avancés (PBR, normal maps)
 - [ ] **Physique 3D** (collisions de boîtes/sphères, gravité)
 - [ ] **Caméra première personne** + contrôleur FPS
 - [ ] Étendre l'**éditeur** et le **scripting Lua** à la 3D
