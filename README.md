@@ -448,6 +448,19 @@ Pour un personnage **animé**, cherche une « character spritesheet » : une ima
 avec plusieurs frames alignées. Adapte alors `frameWidth`/`frameHeight` et le
 nombre de frames par ligne dans la déclaration de l'`Animator`.
 
+### Pack Kenney (CC0) en un script
+
+Un script télécharge un vrai pack **Kenney « Pixel Platformer »** (domaine public
+CC0) et extrait les ~189 tuiles dans `examples/01_perso2d/assets/kenney/` :
+
+```bash
+bash tools/fetch_kenney.sh
+```
+
+Elles apparaissent alors automatiquement dans le panneau **Assets** de l'éditeur
+(listage récursif) : glisse-les dans la scène, ou re-skinne une entité depuis
+l'Inspecteur. (Le pack n'est pas inclus dans le dépôt pour rester léger.)
+
 ## Licence
 
 **MIT** — voir [LICENSE](LICENSE). Licence permissive : usage libre, y compris

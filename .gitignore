@@ -18,3 +18,6 @@ examples/05_editor/niveau*.json
 
 # Layout ImGui (généré au runtime)
 imgui.ini
+
+# Packs d'assets tiers téléchargés (ex. Kenney) — récupérés via tools/fetch_kenney.sh
+examples/01_perso2d/assets/kenney/
