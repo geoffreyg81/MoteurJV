@@ -433,10 +433,11 @@ matière à contributions et à versions futures.
 - [x] **Tampon de saut** (jump buffering), **coyote time** et **double saut** — fait
 
 ### 🤖 IA & comportements
-- [ ] **Comportements no-code** supplémentaires : poursuite, fuite, saut, tir
+- [x] **Comportements no-code** : poursuite (saut inclus), tir de projectiles — fait
+- [x] **Générateurs (spawners)** d'ennemis (intervalle, plafond, type) — fait
+- [ ] Comportements supplémentaires : fuite, vol, tir en rafale/visée prédictive
 - [ ] **Patrouille avancée** : demi-tour au bord du vide / contre un mur
 - [ ] **Champs de navigation** / pathfinding (A*) sur grille
-- [ ] **Vagues d'ennemis** et générateurs (spawners)
 - [ ] **Arbres de comportement** ou graphes d'états visuels
 
 ### 🎬 Interface & menus (in-game)

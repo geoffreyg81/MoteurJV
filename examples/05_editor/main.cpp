@@ -52,6 +52,10 @@ struct Controllable {                                         // "joueur"
 };
 struct Particle { Vec2 pos, vel; float life = 0, maxLife = 0; mjv::Color color; };
 struct Tile {};                                               // tuile peinte (pour effacer/repérer)
+struct Chase { float speed = 130.0f; float range = 360.0f; bool jump = true; };  // poursuit le joueur
+struct Shooter { float interval = 1.6f; float bulletSpeed = 330.0f; float range = 480.0f; float timer = 0.0f; }; // tire
+struct Projectile { Vec2 vel; float life = 3.0f; };           // tir (runtime)
+struct Spawner { float interval = 3.0f; float timer = 0.0f; int maxAlive = 4; int kind = 0; }; // génère des ennemis
 struct Patrol {                                               // ennemi va-et-vient
     float speed = 90.0f;
     float range = 140.0f;
@@ -244,12 +248,26 @@ private:
         m_reg.add<Health>(e, Health{});
         m_reg.add<Name>(e, Name{"Joueur"}); m_selected = e; setStatus("Joueur cree (anime, jouable en Play)"); return e;
     }
-    Entity spawnEnemy(Vec2 pos) {
+    // Ennemi avec un comportement : 0 = patrouille, 1 = poursuite, 2 = tireur.
+    Entity makeEnemyEntity(Vec2 pos, int behavior, const char* name) {
         Entity e = makeSpriteEntity("enemy.png", pos);
         m_reg.add<AABB>(e, AABB{m_reg.get<SpriteAsset>(e).size * 0.5f});
         m_reg.add<RigidBody>(e, RigidBody{});
-        m_reg.add<Patrol>(e, Patrol{});
-        m_reg.add<Name>(e, Name{"Ennemi"}); m_selected = e; setStatus("Ennemi cree (patrouille en Play)"); return e;
+        if (behavior == 1)      m_reg.add<Chase>(e, Chase{});
+        else if (behavior == 2) m_reg.add<Shooter>(e, Shooter{});
+        else                    m_reg.add<Patrol>(e, Patrol{});
+        m_reg.add<Name>(e, Name{name});
+        return e;
+    }
+    Entity spawnEnemy(Vec2 pos)   { Entity e = makeEnemyEntity(pos, 0, "Ennemi");   m_selected = e; setStatus("Ennemi cree (patrouille)"); return e; }
+    Entity spawnChaser(Vec2 pos)  { Entity e = makeEnemyEntity(pos, 1, "Chasseur"); m_selected = e; setStatus("Chasseur cree (poursuit)"); return e; }
+    Entity spawnShooter(Vec2 pos) { Entity e = makeEnemyEntity(pos, 2, "Tireur");   m_selected = e; setStatus("Tireur cree (tire)"); return e; }
+    Entity spawnSpawner(Vec2 pos) {
+        Entity e = m_reg.create();
+        m_reg.add<Transform2D>(e, Transform2D{pos});
+        m_reg.add<RectShape>(e, RectShape{{44.0f, 44.0f}, mjv::Color{150, 90, 200, 255}});
+        m_reg.add<Spawner>(e, Spawner{});
+        m_reg.add<Name>(e, Name{"Generateur"}); m_selected = e; setStatus("Generateur cree"); return e;
     }
     // Pièce à ramasser : sprite SANS AABB (pas un mur solide, juste un trigger).
     Entity spawnCoin(Vec2 pos) {
@@ -422,6 +440,89 @@ private:
         });
     }
 
+    bool nearestPlayer(Vec2 from, Vec2& out) {
+        bool found = false; float best = 1e18f;
+        m_reg.view<Controllable, Transform2D>([&](Entity, Controllable&, Transform2D& t) {
+            const float dd = (t.position.x - from.x) * (t.position.x - from.x) + (t.position.y - from.y) * (t.position.y - from.y);
+            if (dd < best) { best = dd; out = t.position; found = true; }
+        });
+        return found;
+    }
+
+    // Ennemi qui poursuit le joueur (et saute pour le suivre).
+    void chaseSystem(float) {
+        m_reg.view<Chase, RigidBody, Transform2D>([&](Entity, Chase& ch, RigidBody& rb, Transform2D& tr) {
+            Vec2 pp;
+            if (!nearestPlayer(tr.position, pp)) { rb.velocity.x = 0.0f; return; }
+            const float dx = pp.x - tr.position.x;
+            if (std::abs(dx) < ch.range && std::abs(dx) > 4.0f) {
+                rb.velocity.x = (dx < 0.0f ? -1.0f : 1.0f) * ch.speed;
+                if (ch.jump && rb.onGround && pp.y < tr.position.y - 40.0f) rb.velocity.y = -720.0f;
+            } else {
+                rb.velocity.x = 0.0f;
+            }
+        });
+    }
+
+    void spawnProjectile(Vec2 pos, Vec2 vel) {
+        Entity e = m_reg.create();
+        m_reg.add<Transform2D>(e, Transform2D{pos});
+        m_reg.add<RectShape>(e, RectShape{{12.0f, 12.0f}, mjv::Color{255, 120, 60, 255}});
+        m_reg.add<Projectile>(e, Projectile{vel, 3.0f});
+    }
+
+    // Ennemi qui tire vers le joueur à intervalles réguliers.
+    void shooterSystem(float dt) {
+        std::vector<std::pair<Vec2, Vec2>> shots;
+        m_reg.view<Shooter, Transform2D>([&](Entity, Shooter& s, Transform2D& tr) {
+            s.timer += dt;
+            Vec2 pp;
+            if (!nearestPlayer(tr.position, pp)) return;
+            const float dx = pp.x - tr.position.x, dy = pp.y - tr.position.y;
+            const float dist = std::sqrt(dx * dx + dy * dy);
+            if (dist < s.range && s.timer >= s.interval) {
+                s.timer = 0.0f;
+                const Vec2 dir = dist > 0.0f ? Vec2{dx / dist, dy / dist} : Vec2{1.0f, 0.0f};
+                shots.push_back({tr.position, dir * s.bulletSpeed});
+            }
+        });
+        for (const auto& sh : shots) spawnProjectile(sh.first, sh.second);
+    }
+
+    // Déplace les tirs ; touche le joueur ou un mur = destruction.
+    void projectileSystem(float dt) {
+        struct B { Vec2 c, h; };
+        std::vector<B> statics;
+        m_reg.view<AABB, Transform2D>([&](Entity e, AABB& b, Transform2D& t) { if (!m_reg.has<RigidBody>(e)) statics.push_back({t.position, b.halfSize}); });
+        struct P { Entity e; Vec2 c, h; };
+        std::vector<P> players;
+        m_reg.view<Controllable, Transform2D>([&](Entity e, Controllable&, Transform2D& t) { players.push_back({e, t.position, halfExtents(e)}); });
+        std::vector<Entity> dead;
+        m_reg.view<Projectile, Transform2D>([&](Entity e, Projectile& pr, Transform2D& t) {
+            t.position += pr.vel * dt;
+            pr.life -= dt;
+            const Vec2 h = halfExtents(e);
+            bool kill = pr.life <= 0.0f;
+            for (const B& s : statics) if (aabbOverlap(t.position, h, s.c, s.h)) kill = true;
+            for (const P& p : players) if (m_invuln <= 0.0f && aabbOverlap(t.position, h, p.c, p.h)) { hitPlayer(p.e); kill = true; }
+            if (kill) dead.push_back(e);
+        });
+        for (Entity e : dead) m_reg.destroy(e);
+    }
+
+    // Génère des ennemis à intervalle, sous un plafond.
+    void spawnerSystem(float dt) {
+        int alive = 0;
+        m_reg.view<Patrol>([&](Entity, Patrol&) { ++alive; });
+        m_reg.view<Chase>([&](Entity, Chase&) { ++alive; });
+        std::vector<std::pair<Vec2, int>> toSpawn;
+        m_reg.view<Spawner, Transform2D>([&](Entity, Spawner& s, Transform2D& tr) {
+            s.timer += dt;
+            if (s.timer >= s.interval && alive < s.maxAlive) { s.timer = 0.0f; toSpawn.push_back({tr.position, s.kind}); ++alive; }
+        });
+        for (const auto& ts : toSpawn) makeEnemyEntity(ts.first, ts.second == 1 ? 1 : 0, "Ennemi");
+    }
+
     void win()  { if (!m_won && !m_lost) { m_won = true; m_sfxWin.play(); } }
     void lose() { if (!m_won && !m_lost) { m_lost = true; m_sfxLose.play(); } }
 
@@ -524,9 +625,13 @@ private:
                 if (m_timeLimit > 0.0f) { m_timeLeft -= dt; if (m_timeLeft <= 0.0f) { m_timeLeft = 0.0f; lose(); } }
                 controlSystem(dt);
                 patrolSystem(dt);
+                chaseSystem(dt);
                 physicsStep(m_reg, std::min(dt, 0.033f), {0.0f, kGravity});
                 animationSystem(dt);
                 gameplaySystem();
+                shooterSystem(dt);
+                projectileSystem(dt);
+                spawnerSystem(dt);
                 particleSystem(dt);
                 m_shake = std::max(0.0f, m_shake - dt);
             }
@@ -845,6 +950,9 @@ private:
                 if (ImGui::MenuItem("Tuile"))      { pushUndo(); spawnTile(snap(m_camTarget)); }
                 if (ImGui::MenuItem("Caisse"))     { pushUndo(); spawnCrate({450.0f, 150.0f}); }
                 if (ImGui::MenuItem("Ennemi"))     { pushUndo(); spawnEnemy({500.0f, 200.0f}); }
+                if (ImGui::MenuItem("Chasseur"))   { pushUndo(); spawnChaser({500.0f, 200.0f}); }
+                if (ImGui::MenuItem("Tireur"))     { pushUndo(); spawnShooter({500.0f, 200.0f}); }
+                if (ImGui::MenuItem("Generateur")) { pushUndo(); spawnSpawner({500.0f, 200.0f}); }
                 if (ImGui::MenuItem("Piece"))      { pushUndo(); spawnCoin({550.0f, 300.0f}); }
                 if (ImGui::MenuItem("Objectif"))   { pushUndo(); spawnGoal({600.0f, 250.0f}); }
                 ImGui::Separator();
@@ -1037,6 +1145,24 @@ private:
             ImGui::DragFloat("vitesse", &p.speed, 1.0f, 0.0f, 600.0f);
             ImGui::DragFloat("portee", &p.range, 1.0f, 0.0f, 1200.0f);
         }
+        if (m_reg.has<Chase>(m_selected) && ImGui::CollapsingHeader("Chasseur (poursuite)", ImGuiTreeNodeFlags_DefaultOpen)) {
+            Chase& ch = m_reg.get<Chase>(m_selected);
+            ImGui::DragFloat("vitesse", &ch.speed, 1.0f, 0.0f, 600.0f);
+            ImGui::DragFloat("portee", &ch.range, 2.0f, 0.0f, 2000.0f);
+            ImGui::Checkbox("peut sauter", &ch.jump);
+        }
+        if (m_reg.has<Shooter>(m_selected) && ImGui::CollapsingHeader("Tireur", ImGuiTreeNodeFlags_DefaultOpen)) {
+            Shooter& s = m_reg.get<Shooter>(m_selected);
+            ImGui::DragFloat("cadence (s)", &s.interval, 0.05f, 0.2f, 10.0f);
+            ImGui::DragFloat("vitesse tir", &s.bulletSpeed, 2.0f, 50.0f, 1000.0f);
+            ImGui::DragFloat("portee", &s.range, 2.0f, 0.0f, 2000.0f);
+        }
+        if (m_reg.has<Spawner>(m_selected) && ImGui::CollapsingHeader("Generateur d'ennemis", ImGuiTreeNodeFlags_DefaultOpen)) {
+            Spawner& sp = m_reg.get<Spawner>(m_selected);
+            ImGui::DragFloat("intervalle (s)", &sp.interval, 0.1f, 0.3f, 30.0f);
+            ImGui::DragInt("max simultanes", &sp.maxAlive, 0.1f, 1, 50);
+            ImGui::Combo("type", &sp.kind, "Patrouilleur\0Chasseur\0");
+        }
         if (m_reg.has<Collectible>(m_selected) && ImGui::CollapsingHeader("Piece (a ramasser)", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::DragInt("points", &m_reg.get<Collectible>(m_selected).points, 1.0f, 0, 100000);
         }
@@ -1054,6 +1180,10 @@ private:
         if (!m_reg.has<Controllable>(m_selected) && ImGui::Button("+ Joueur"))    { m_reg.add<Controllable>(m_selected); if (!m_reg.has<RigidBody>(m_selected)) m_reg.add<RigidBody>(m_selected); }
         ImGui::SameLine();
         if (!m_reg.has<Patrol>(m_selected)       && ImGui::Button("+ Ennemi"))    { m_reg.add<Patrol>(m_selected); if (!m_reg.has<RigidBody>(m_selected)) m_reg.add<RigidBody>(m_selected); }
+        ImGui::SameLine();
+        if (!m_reg.has<Chase>(m_selected)        && ImGui::Button("+ Chasseur"))  { m_reg.add<Chase>(m_selected); if (!m_reg.has<RigidBody>(m_selected)) m_reg.add<RigidBody>(m_selected); }
+        ImGui::SameLine();
+        if (!m_reg.has<Shooter>(m_selected)      && ImGui::Button("+ Tireur"))    { m_reg.add<Shooter>(m_selected); }
         if (!m_reg.has<Collectible>(m_selected)  && ImGui::Button("+ Piece"))     m_reg.add<Collectible>(m_selected);
         ImGui::SameLine();
         if (!m_reg.has<Goal>(m_selected)         && ImGui::Button("+ Objectif"))  m_reg.add<Goal>(m_selected);
@@ -1165,6 +1295,9 @@ private:
         if (m_reg.has<RigidBody>(e))   je["RigidBody"] = {{"gravityScale", m_reg.get<RigidBody>(e).gravityScale}};
         if (m_reg.has<Controllable>(e)){ Controllable& c = m_reg.get<Controllable>(e); je["Controllable"] = {{"speed", c.speed}, {"jumpForce", c.jumpForce}, {"maxJumps", c.maxJumps}}; }
         if (m_reg.has<Patrol>(e))      { Patrol& p = m_reg.get<Patrol>(e); je["Patrol"] = {{"speed", p.speed}, {"range", p.range}}; }
+        if (m_reg.has<Chase>(e))       { Chase& ch = m_reg.get<Chase>(e); je["Chase"] = {{"speed", ch.speed}, {"range", ch.range}, {"jump", ch.jump}}; }
+        if (m_reg.has<Shooter>(e))     { Shooter& s = m_reg.get<Shooter>(e); je["Shooter"] = {{"interval", s.interval}, {"bulletSpeed", s.bulletSpeed}, {"range", s.range}}; }
+        if (m_reg.has<Spawner>(e))     { Spawner& sp = m_reg.get<Spawner>(e); je["Spawner"] = {{"interval", sp.interval}, {"maxAlive", sp.maxAlive}, {"kind", sp.kind}}; }
         if (m_reg.has<Collectible>(e)) je["Collectible"] = {{"points", m_reg.get<Collectible>(e).points}};
         if (m_reg.has<Goal>(e))        je["Goal"] = true;
         if (m_reg.has<Tile>(e))        je["Tile"] = true;
@@ -1189,6 +1322,9 @@ private:
         if (je.contains("RigidBody"))   { RigidBody rb; rb.gravityScale = je["RigidBody"]["gravityScale"].get<float>(); m_reg.add<RigidBody>(e, rb); }
         if (je.contains("Controllable")){ const json& j = je["Controllable"]; Controllable c{j["speed"].get<float>(), j["jumpForce"].get<float>()}; c.maxJumps = j.value("maxJumps", 1); m_reg.add<Controllable>(e, c); }
         if (je.contains("Patrol"))      { const json& j = je["Patrol"]; Patrol p; p.speed = j["speed"].get<float>(); p.range = j["range"].get<float>(); m_reg.add<Patrol>(e, p); }
+        if (je.contains("Chase"))       { const json& j = je["Chase"]; Chase ch; ch.speed = j["speed"].get<float>(); ch.range = j["range"].get<float>(); ch.jump = j.value("jump", true); m_reg.add<Chase>(e, ch); }
+        if (je.contains("Shooter"))     { const json& j = je["Shooter"]; Shooter s; s.interval = j["interval"].get<float>(); s.bulletSpeed = j["bulletSpeed"].get<float>(); s.range = j["range"].get<float>(); m_reg.add<Shooter>(e, s); }
+        if (je.contains("Spawner"))     { const json& j = je["Spawner"]; Spawner sp; sp.interval = j["interval"].get<float>(); sp.maxAlive = j["maxAlive"].get<int>(); sp.kind = j["kind"].get<int>(); m_reg.add<Spawner>(e, sp); }
         if (je.contains("Collectible")) m_reg.add<Collectible>(e, Collectible{je["Collectible"]["points"].get<int>()});
         if (je.contains("Goal"))        m_reg.add<Goal>(e, Goal{});
         if (je.contains("Tile"))        m_reg.add<Tile>(e, Tile{});
