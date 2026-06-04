@@ -49,6 +49,7 @@ struct Patrol {                                               // ennemi va-et-vi
 };
 struct Collectible { int points = 100; };                     // pièce à ramasser
 struct Goal {};                                               // objectif = fin de niveau
+struct Health { int lives = 3; };                             // vies du joueur
 
 class Editor : public Application {
 public:
@@ -85,6 +86,11 @@ private:
     int m_score = 0;
     bool m_won = false;
     bool m_lost = false;
+    Vec2 m_playerSpawn;
+    float m_invuln = 0.0f;       // invincibilité après un coup (s)
+    float m_timeLimit = 0.0f;    // limite de temps du niveau (0 = aucune)
+    float m_timeLeft = 0.0f;
+    mjv::Sound m_sfxCoin, m_sfxWin, m_sfxLose, m_sfxHit;
 
     ::RenderTexture2D m_target{};
     bool m_layoutInit = false;
@@ -99,6 +105,11 @@ private:
         ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
         applyDarkTheme();
         m_target = LoadRenderTexture(kWorldW, kWorldH);
+        const std::string dir = std::string(MJV_ASSET_DIR) + "/";
+        m_sfxCoin.load(dir + "coin.wav");
+        m_sfxWin.load(dir + "win.wav");
+        m_sfxLose.load(dir + "lose.wav");
+        m_sfxHit.load(dir + "bump.wav");
         buildScene();
     }
 
@@ -158,6 +169,7 @@ private:
         m_reg.add<AABB>(e, AABB{{19.0f, 27.0f}});
         m_reg.add<RigidBody>(e, RigidBody{});
         m_reg.add<Controllable>(e, Controllable{});
+        m_reg.add<Health>(e, Health{});
         m_selected = e; setStatus("Joueur cree (jouable en Play)"); return e;
     }
     Entity spawnEnemy(Vec2 pos) {
@@ -233,7 +245,9 @@ private:
     void play() {
         m_snapshot = sceneToJson();
         m_playing = true;
-        m_score = 0; m_won = false; m_lost = false;
+        m_score = 0; m_won = false; m_lost = false; m_invuln = 0.0f;
+        m_timeLeft = m_timeLimit;
+        Vec2 sp; if (firstPlayer(sp)) m_playerSpawn = sp;
         setStatus("Lecture - Stop pour revenir a l'edition");
     }
     void stop() {
@@ -273,31 +287,50 @@ private:
         });
     }
 
-    // Ramassage des pièces, contact ennemi (perdu), objectif atteint (gagné).
+    void win()  { if (!m_won && !m_lost) { m_won = true; m_sfxWin.play(); } }
+    void lose() { if (!m_won && !m_lost) { m_lost = true; m_sfxLose.play(); } }
+
+    // Le joueur est touché : perd une vie (et respawn) ou perd la partie.
+    void hitPlayer(Entity e) {
+        m_invuln = 1.4f;
+        if (m_reg.has<Health>(e)) {
+            Health& hp = m_reg.get<Health>(e);
+            if (--hp.lives <= 0) { lose(); return; }
+            m_sfxHit.play();
+            if (m_reg.has<Transform2D>(e)) m_reg.get<Transform2D>(e).position = m_playerSpawn;
+            if (m_reg.has<RigidBody>(e))   m_reg.get<RigidBody>(e).velocity = {0.0f, 0.0f};
+        } else {
+            lose();
+        }
+    }
+
+    // Ramassage des pièces, contact ennemi, objectif atteint.
     void gameplaySystem() {
         if (m_won || m_lost) return;
-        struct Box { Vec2 c; Vec2 h; };
-        std::vector<Box> players;
+        struct P { Entity e; Vec2 c; Vec2 h; };
+        std::vector<P> players;
         m_reg.view<Controllable, Transform2D>([&](Entity e, Controllable&, Transform2D& t) {
-            players.push_back({t.position, halfExtents(e)});
+            players.push_back({e, t.position, halfExtents(e)});
         });
         if (players.empty()) return;
 
         std::vector<Entity> picked;
         m_reg.view<Collectible, Transform2D>([&](Entity e, Collectible& c, Transform2D& t) {
             const Vec2 h = halfExtents(e);
-            for (const Box& p : players)
-                if (aabbOverlap(p.c, p.h, t.position, h)) { m_score += c.points; picked.push_back(e); break; }
+            for (const P& p : players)
+                if (aabbOverlap(p.c, p.h, t.position, h)) { m_score += c.points; m_sfxCoin.play(); picked.push_back(e); break; }
         });
         for (Entity e : picked) m_reg.destroy(e);
 
-        m_reg.view<Patrol, Transform2D>([&](Entity e, Patrol&, Transform2D& t) {
-            const Vec2 h = halfExtents(e);
-            for (const Box& p : players) if (aabbOverlap(p.c, p.h, t.position, h)) m_lost = true;
-        });
+        if (m_invuln <= 0.0f) {
+            m_reg.view<Patrol, Transform2D>([&](Entity e, Patrol&, Transform2D& t) {
+                const Vec2 h = halfExtents(e);
+                for (const P& p : players) if (aabbOverlap(p.c, p.h, t.position, h)) { hitPlayer(p.e); return; }
+            });
+        }
         m_reg.view<Goal, Transform2D>([&](Entity e, Goal&, Transform2D& t) {
             const Vec2 h = halfExtents(e);
-            for (const Box& p : players) if (aabbOverlap(p.c, p.h, t.position, h)) m_won = true;
+            for (const P& p : players) if (aabbOverlap(p.c, p.h, t.position, h)) win();
         });
     }
 
@@ -307,12 +340,26 @@ private:
         if (!m_playing) handleViewportInteraction();
 
         if (m_playing) {
+            // Rejouer le niveau quand la partie est finie (Entree).
+            if ((m_won || m_lost) && Input::isPressed(Key::Enter)) { stop(); play(); renderSceneToTexture(); return; }
+            if (m_invuln > 0.0f) m_invuln -= dt;
+            // Limite de temps.
+            if (m_timeLimit > 0.0f && !m_won && !m_lost) {
+                m_timeLeft -= dt;
+                if (m_timeLeft <= 0.0f) { m_timeLeft = 0.0f; lose(); }
+            }
             controlSystem();
             patrolSystem(dt);
             physicsStep(m_reg, std::min(dt, 0.033f), {0.0f, kGravity});
             gameplaySystem();
         }
         renderSceneToTexture();
+    }
+
+    int playerLives() {
+        int lives = -1;
+        m_reg.view<Controllable, Health>([&](Entity, Controllable&, Health& h) { if (lives < 0) lives = h.lives; });
+        return lives;
     }
 
     Vec2 screenToWorld(Vec2 s) const {
@@ -371,16 +418,42 @@ private:
                                                    h * 2.0f + Vec2{8, 8}, Colors::Yellow, 2.5f);
         }
         if (useCam) EndMode2D();
-
-        // HUD du jeu (en repère écran, hors caméra).
-        if (m_playing) {
-            Graphics::drawText("Score: " + std::to_string(m_score), {20.0f, 18.0f}, 30, Colors::White);
-            if (m_won)
-                Graphics::drawText("VICTOIRE !", {kWorldW * 0.5f - 150.0f, kWorldH * 0.5f - 40.0f}, 64, mjv::Color{120, 230, 120, 255});
-            else if (m_lost)
-                Graphics::drawText("PERDU", {kWorldW * 0.5f - 90.0f, kWorldH * 0.5f - 40.0f}, 64, mjv::Color{230, 80, 80, 255});
-        }
+        if (m_playing) drawHud();
         EndTextureMode();
+    }
+
+    // Texte centré horizontalement (police par défaut : ~0.5*taille par caractère).
+    void drawCentered(const std::string& s, float y, int size, mjv::Color col) {
+        const float x = kWorldW * 0.5f - s.size() * size * 0.25f;
+        Graphics::drawText(s, {x, y}, size, col);
+    }
+
+    void drawHud() {
+        const mjv::Color white{245, 245, 245, 255};
+        const mjv::Color shadow{0, 0, 0, 140};
+        // Score (avec ombre pour la lisibilité).
+        Graphics::drawText("Score : " + std::to_string(m_score), {26.0f, 22.0f}, 38, shadow);
+        Graphics::drawText("Score : " + std::to_string(m_score), {24.0f, 20.0f}, 38, white);
+        // Vies.
+        const int lives = playerLives();
+        if (lives >= 0) Graphics::drawText("Vies : " + std::to_string(lives), {24.0f, 66.0f}, 30, white);
+        // Temps.
+        if (m_timeLimit > 0.0f)
+            Graphics::drawText("Temps : " + std::to_string(static_cast<int>(std::ceil(m_timeLeft))),
+                               {24.0f, 104.0f}, 30, white);
+
+        // Écran de fin stylé.
+        if (m_won || m_lost) {
+            Graphics::drawRectangle({0.0f, 0.0f}, {kWorldW, kWorldH}, mjv::Color{12, 14, 20, 170});
+            const float cy = kWorldH * 0.5f;
+            if (m_won) {
+                drawCentered("VICTOIRE !", cy - 110.0f, 96, mjv::Color{120, 230, 120, 255});
+            } else {
+                drawCentered("PERDU", cy - 110.0f, 96, mjv::Color{235, 90, 90, 255});
+            }
+            drawCentered("Score : " + std::to_string(m_score), cy + 10.0f, 44, white);
+            drawCentered("Entree : rejouer       Stop : editer", cy + 80.0f, 28, mjv::Color{180, 185, 200, 255});
+        }
     }
 
     // ----------------------------------------------------------------- UI
@@ -442,6 +515,12 @@ private:
                 }
                 ImGui::EndMenu();
             }
+            if (ImGui::BeginMenu("Niveau")) {
+                ImGui::SetNextItemWidth(160);
+                ImGui::DragFloat("Temps limite (s)", &m_timeLimit, 1.0f, 0.0f, 999.0f, "%.0f");
+                ImGui::TextDisabled("0 = pas de limite");
+                ImGui::EndMenu();
+            }
             ImGui::Separator();
             if (ImGui::Button(m_playing ? " Stop " : " Play ")) { m_playing ? stop() : play(); }
             ImGui::SameLine();
@@ -483,6 +562,7 @@ private:
         if (m_reg.has<Patrol>(e))       s += "E";
         if (m_reg.has<Collectible>(e))  s += "$";
         if (m_reg.has<Goal>(e))         s += "O";
+        if (m_reg.has<Health>(e))       s += "H";
         if (m_reg.has<RigidBody>(e))    s += "P";
         if (m_reg.has<SpriteAsset>(e))  s += "S";
         if (m_reg.has<RectShape>(e))    s += "R";
@@ -553,6 +633,9 @@ private:
         if (m_reg.has<Goal>(m_selected) && ImGui::CollapsingHeader("Objectif (fin de niveau)", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::TextDisabled("Le joueur gagne en le touchant.");
         }
+        if (m_reg.has<Health>(m_selected) && ImGui::CollapsingHeader("Vies", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::DragInt("nombre de vies", &m_reg.get<Health>(m_selected).lives, 1.0f, 1, 99);
+        }
 
         ImGui::Separator();
         ImGui::TextDisabled("Ajouter un comportement :");
@@ -564,6 +647,8 @@ private:
         if (!m_reg.has<Collectible>(m_selected)  && ImGui::Button("+ Piece"))     m_reg.add<Collectible>(m_selected);
         ImGui::SameLine();
         if (!m_reg.has<Goal>(m_selected)         && ImGui::Button("+ Objectif"))  m_reg.add<Goal>(m_selected);
+        ImGui::SameLine();
+        if (!m_reg.has<Health>(m_selected)       && ImGui::Button("+ Vies"))      m_reg.add<Health>(m_selected);
         if (!m_reg.has<RectShape>(m_selected)     && ImGui::Button("+ Rectangle")) m_reg.add<RectShape>(m_selected, RectShape{{40, 40}, Colors::Blue});
         if (!m_reg.has<AABB>(m_selected)          && ImGui::Button("+ Collision")) m_reg.add<AABB>(m_selected, AABB{halfExtents(m_selected)});
         ImGui::End();
@@ -618,6 +703,7 @@ private:
 
     json sceneToJson() {
         json doc; doc["entities"] = json::array();
+        doc["timeLimit"] = m_timeLimit;
         for (Entity e : m_reg.entities()) {
             json je;
             if (m_reg.has<Transform2D>(e)) { Transform2D& t = m_reg.get<Transform2D>(e); je["Transform2D"] = {{"position", vecToJ(t.position)}, {"rotation", t.rotation}, {"scale", vecToJ(t.scale)}}; }
@@ -628,6 +714,7 @@ private:
             if (m_reg.has<Patrol>(e))      { Patrol& p = m_reg.get<Patrol>(e); je["Patrol"] = {{"speed", p.speed}, {"range", p.range}}; }
             if (m_reg.has<Collectible>(e)) je["Collectible"] = {{"points", m_reg.get<Collectible>(e).points}};
             if (m_reg.has<Goal>(e))        je["Goal"] = true;
+            if (m_reg.has<Health>(e))      je["Health"] = {{"lives", m_reg.get<Health>(e).lives}};
             if (m_reg.has<SpriteAsset>(e)) { SpriteAsset& sp = m_reg.get<SpriteAsset>(e); je["SpriteAsset"] = {{"path", sp.path}, {"size", vecToJ(sp.size)}}; }
             doc["entities"].push_back(je);
         }
@@ -636,6 +723,7 @@ private:
 
     void jsonToScene(const json& doc) {
         m_reg.clear(); m_selected = NullEntity;
+        m_timeLimit = doc.value("timeLimit", 0.0f);
         if (!doc.contains("entities")) return;
         for (const json& je : doc["entities"]) {
             Entity e = m_reg.create();
@@ -647,6 +735,7 @@ private:
             if (je.contains("Patrol"))      { const json& j = je["Patrol"]; Patrol p; p.speed = j["speed"].get<float>(); p.range = j["range"].get<float>(); m_reg.add<Patrol>(e, p); }
             if (je.contains("Collectible")) m_reg.add<Collectible>(e, Collectible{je["Collectible"]["points"].get<int>()});
             if (je.contains("Goal"))        m_reg.add<Goal>(e, Goal{});
+            if (je.contains("Health"))      m_reg.add<Health>(e, Health{je["Health"]["lives"].get<int>()});
             if (je.contains("SpriteAsset")) { const json& j = je["SpriteAsset"]; m_reg.add<SpriteAsset>(e, SpriteAsset{j["path"].get<std::string>(), jToVec(j["size"])}); }
         }
     }

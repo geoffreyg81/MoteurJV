@@ -163,9 +163,12 @@ tu construis et tu joues un jeu sans écrire une ligne.
    suit le joueur**. **Stop** restaure la scène d'édition.
 5. **Sauvegarde** la scène en JSON
 
-Une boucle de jeu complète — collecter, éviter, atteindre l'objectif — **sans une
-ligne de code**. Les comportements sont des composants à cocher : `Controllable`
-(joueur), `Patrol` (ennemi), `Collectible` (pièce), `Goal` (objectif).
+Une boucle de jeu complète **sans une ligne de code**, avec du **jus** : sons de
+gameplay (plop de pièce, jingle de victoire, game over), **vies** + respawn,
+**temps limite** optionnel, **score**, et un **écran de fin stylé** (Victoire /
+Perdu, Entrée pour rejouer). Les comportements sont des composants à cocher :
+`Controllable` (joueur), `Patrol` (ennemi), `Collectible` (pièce), `Goal`
+(objectif), `Health` (vies) — réglés dans le menu **Créer** et l'**Inspecteur**.
 
 Détails techniques : thème sombre custom, **layout ancré (DockSpace)** 3 zones, le
 jeu rendu dans une **RenderTexture** affichée dans le Viewport, caméra 2D de suivi.

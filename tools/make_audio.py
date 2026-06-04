@@ -77,6 +77,15 @@ def sweep(f0, f1, dur, vol=0.4, decay=6.0):
 
 write_wav(os.path.join(assets, "jump.wav"), sweep(320, 720, 0.14))
 
+# --- Victoire : petit jingle ascendant ---------------------------------------
+C5, E5, G5, C6 = 523.25, 659.25, 783.99, 1046.5
+win = (tone(C5, 0.10, 0.40, 6.0, "square") + tone(E5, 0.10, 0.40, 6.0, "square") +
+       tone(G5, 0.10, 0.40, 6.0, "square") + tone(C6, 0.24, 0.45, 4.0, "square"))
+write_wav(os.path.join(assets, "win.wav"), win)
+
+# --- Défaite : descente "game over" ------------------------------------------
+write_wav(os.path.join(assets, "lose.wav"), sweep(420, 110, 0.55, vol=0.5, decay=3.5))
+
 # --- Pièce ramassée : deux notes claires ascendantes -------------------------
 coin = tone(988, 0.05, vol=0.4, decay=10.0) + tone(1319, 0.10, vol=0.4, decay=8.0)
 write_wav(os.path.join(assets, "coin.wav"), coin)
