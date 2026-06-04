@@ -446,8 +446,8 @@ matière à contributions et à versions futures.
 - [x] **Verrouiller / masquer** des entités — fait ; dossiers dans la hiérarchie (à venir)
 - [ ] **Multi-sélection** et édition groupée
 - [x] **Mode peinture de tuiles** (poser/effacer en glissant sur la grille) — fait
-- [ ] **Pivoter** les entités (gizmo de rotation)
-- [ ] **Recherche/filtre** dans la hiérarchie
+- [x] **Pivoter** les entités (gizmo de rotation à la souris) — fait
+- [x] **Recherche/filtre** dans la hiérarchie — fait
 - [ ] **Aperçu des animations** dans l'inspecteur
 - [ ] **Importer un asset par glisser-déposer** depuis l'explorateur Windows
 - [ ] **Console de logs** intégrée, profileur (FPS, nb d'entités, draw calls)
