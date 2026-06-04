@@ -29,6 +29,7 @@ if [ "${1:-build}" = "run" ]; then
     lua) EXE="$BUILD_DIR/examples/03_lua/lua_demo" ;;
     lua-ecs) EXE="$BUILD_DIR/examples/04_lua_ecs/lua_ecs" ;;
     editor)  EXE="$BUILD_DIR/examples/05_editor/editor" ;;
+    3d)      EXE="$BUILD_DIR/examples/06_3d/demo3d" ;;
     *)   EXE="$BUILD_DIR/examples/01_perso2d/perso2d" ;;
   esac
   echo "==> Lancement : $EXE"

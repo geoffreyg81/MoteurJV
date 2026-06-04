@@ -73,6 +73,7 @@ MoteurJV/
 │   │   ├── Audio.hpp        #   mjv::Audio, Sound, Music
 │   │   ├── Collision.hpp    #   AABB : overlap + résolution (MTV)
 │   │   ├── Physics.hpp      #   mini-physique : gravité + saut + AABB (physicsStep)
+│   │   ├── Render3D.hpp     #   3D : caméra perspective + primitives (cube, sphère, sol, grille)
 │   │   ├── ecs/Registry.hpp #   ECS : Entity, Component, view<...> (systèmes)
 │   │   ├── Math.hpp         #   Vec2, Transform2D, Rect
 │   │   └── Color.hpp
@@ -83,7 +84,8 @@ MoteurJV/
 │   ├── 02_jeu/              # un VRAI petit jeu : platformer 3 niveaux + ennemis
 │   ├── 03_lua/              # un jeu écrit en Lua (game.lua) — sans recompiler
 │   ├── 04_lua_ecs/          # l'ECS + la physique pilotés depuis Lua (scene.lua)
-│   └── 05_editor/           # ÉDITEUR visuel facon Unity (Dear ImGui docking)
+│   ├── 05_editor/           # ÉDITEUR visuel facon Unity (Dear ImGui docking)
+│   └── 06_3d/               # première démo 3D (cube jouable, caméra orbitale)
 ├── tools/                   # make_sprite.py (génère les assets), scripts WSL
 ├── build.sh                 # build + run sous Linux/WSL
 ├── build.ps1                # build + run sous Windows natif
@@ -107,6 +109,7 @@ les binaires Linux ne sont pas concernés, et la fenêtre s'affiche via WSLg.
 ./build.sh run lua    # un jeu écrit en Lua (examples/03_lua)
 ./build.sh run lua-ecs # l'ECS + la physique pilotés en Lua (examples/04_lua_ecs)
 ./build.sh run editor  # l'éditeur visuel ImGui (examples/05_editor)
+./build.sh run 3d      # la première démo 3D (examples/06_3d)
 ```
 
 Dépendance supplémentaire pour l'exemple Lua : `liblua5.4-dev`
@@ -363,6 +366,15 @@ matière à contributions et à versions futures.
 - [ ] **Texte riche** : polices custom, alignement, info-bulles
 - [ ] **Atlas de textures** automatique (packing) pour les performances
 - [ ] **Flip/teinte/opacité** par sprite, modes de fusion (additif…)
+
+### 🎲 3D
+- [x] **Fondations 3D** : caméra perspective + primitives (cube, sphère, sol, grille) — fait (`Render3D`)
+- [ ] **Chargement de modèles** 3D (`.obj`, `.gltf`)
+- [ ] **Textures & matériaux** sur les modèles
+- [ ] **Éclairage** (lumières directionnelles/ponctuelles, ombres)
+- [ ] **Physique 3D** (collisions de boîtes/sphères, gravité)
+- [ ] **Caméra première personne** + contrôleur FPS
+- [ ] Étendre l'**éditeur** et le **scripting Lua** à la 3D
 
 ### 🧮 Physique & collisions
 - [x] **Collision dynamique ↔ dynamique** (les corps se poussent / s'empilent) — fait

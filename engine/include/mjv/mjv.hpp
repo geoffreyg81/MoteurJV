@@ -11,5 +11,6 @@
 #include "Input.hpp"
 #include "Math.hpp"
 #include "Physics.hpp"
+#include "Render3D.hpp"
 #include "Texture.hpp"
 #include "ecs/Registry.hpp"

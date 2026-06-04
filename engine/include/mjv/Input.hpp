@@ -24,6 +24,7 @@ Vec2 mouseDelta();       // déplacement du curseur depuis la frame précédente
 bool mouseDown(Mouse b);
 bool mousePressed(Mouse b);
 bool mouseReleased(Mouse b);
+float mouseWheel();      // défilement molette (+haut / -bas)
 } // namespace Input
 
 } // namespace mjv

@@ -4,6 +4,7 @@ add_library(mjv
     src/Audio.cpp
     src/Graphics.cpp
     src/Input.cpp
+    src/Render3D.cpp
     src/Texture.cpp
 )
 

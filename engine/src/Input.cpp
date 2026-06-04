@@ -50,6 +50,7 @@ Vec2 mouseDelta()    { const ::Vector2 d = GetMouseDelta();    return {d.x, d.y}
 bool mouseDown(Mouse b)     { return IsMouseButtonDown(toRaylibMouse(b)); }
 bool mousePressed(Mouse b)  { return IsMouseButtonPressed(toRaylibMouse(b)); }
 bool mouseReleased(Mouse b) { return IsMouseButtonReleased(toRaylibMouse(b)); }
+float mouseWheel() { return GetMouseWheelMove(); }
 
 } // namespace Input
 } // namespace mjv

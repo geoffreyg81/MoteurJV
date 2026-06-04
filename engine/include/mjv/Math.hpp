@@ -27,6 +27,17 @@ struct Transform2D {
     Vec2 scale{1.0f, 1.0f};
 };
 
+// Vecteur 3D (pour la 3D : positions, tailles, directions).
+struct Vec3 {
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+    Vec3() = default;
+    Vec3(float x_, float y_, float z_) : x(x_), y(y_), z(z_) {}
+    Vec3 operator+(const Vec3& o) const { return {x + o.x, y + o.y, z + o.z}; }
+    Vec3 operator-(const Vec3& o) const { return {x - o.x, y - o.y, z - o.z}; }
+    Vec3 operator*(float s) const { return {x * s, y * s, z * s}; }
+    Vec3& operator+=(const Vec3& o) { x += o.x; y += o.y; z += o.z; return *this; }
+};
+
 // Rectangle (coin haut-gauche + taille), en pixels. Sert notamment a designer
 // une region source dans une spritesheet.
 struct Rect {
