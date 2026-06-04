@@ -183,6 +183,8 @@ le temps limite. Deux niveaux de démo sont créés au premier lancement.
 - **Changer le skin** : dans l'Inspecteur, clique une autre image pour remplacer le sprite d'une entité
 - **Packs d'assets** : dépose tes PNG (ex. [Kenney](https://kenney.nl/assets), même en sous-dossier)
   dans le dossier d'assets → ils apparaissent automatiquement dans le panneau Assets et les skins
+- **Joueur animé** : le sprite du joueur joue son cycle **marche / idle** et se
+  retourne selon la direction en mode Play (composant `AnimSprite`, réglable dans l'Inspecteur)
 
 Détails techniques : thème sombre custom, **layout ancré (DockSpace)** 3 zones, le
 jeu rendu dans une **RenderTexture** affichée dans le Viewport, caméra 2D (pan/zoom
@@ -351,7 +353,7 @@ Une grande liste de pistes, regroupées par domaine. Rien n'est figé — c'est 
 matière à contributions et à versions futures.
 
 ### 🎨 Rendu & graphismes
-- [ ] **Caméra 2D** : suivre le joueur, zoom, monde plus grand que l'écran
+- [x] **Caméra 2D** : suivi du joueur en jeu, pan/zoom dans l'éditeur (fait)
 - [ ] **Parallaxe** et couches (z-order, calques d'arrière/avant-plan)
 - [ ] **Tilemap** : décors à base de tuiles, import Tiled (`.tmx`)
 - [ ] **Système de particules** (étincelles, fumée, explosions)
@@ -384,7 +386,7 @@ matière à contributions et à versions futures.
 - [ ] **Pool de voix** (jouer plusieurs fois le même son sans coupure)
 
 ### 🖥️ Éditeur
-- [ ] **Redimensionner / pivoter** les entités avec des poignées (gizmos)
+- [x] **Redimensionner** les entités avec des poignées (fait) ; pivoter (à venir)
 - [ ] **Grille & magnétisme** (snap), règles, alignement
 - [ ] **Undo / Redo**
 - [ ] **Copier / coller / dupliquer** des entités
