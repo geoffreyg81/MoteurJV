@@ -183,28 +183,59 @@ private:
     // ----------------------------------------------------------------- thème
     void applyDarkTheme() {
         ImGui::StyleColorsDark();
+        ImGuiIO& io = ImGui::GetIO();
+        io.FontGlobalScale = 1.18f; // interface un peu plus grande/lisible
+
         ImGuiStyle& s = ImGui::GetStyle();
-        s.WindowRounding = 5.0f; s.FrameRounding = 4.0f; s.GrabRounding = 4.0f;
-        s.TabRounding = 4.0f; s.WindowPadding = ImVec2(10, 10);
-        s.FramePadding = ImVec2(8, 4); s.ItemSpacing = ImVec2(8, 6);
-        s.WindowBorderSize = 0.0f;
+        s.WindowRounding = 7.0f; s.ChildRounding = 7.0f; s.PopupRounding = 7.0f;
+        s.FrameRounding = 5.0f; s.GrabRounding = 5.0f; s.TabRounding = 6.0f;
+        s.ScrollbarRounding = 9.0f;
+        s.WindowPadding = ImVec2(12, 12); s.FramePadding = ImVec2(9, 5);
+        s.ItemSpacing = ImVec2(9, 8); s.ItemInnerSpacing = ImVec2(7, 5);
+        s.WindowBorderSize = 1.0f; s.FrameBorderSize = 0.0f; s.PopupBorderSize = 1.0f;
+        s.ScrollbarSize = 13.0f; s.GrabMinSize = 11.0f;
+        s.WindowTitleAlign = ImVec2(0.02f, 0.5f);
+        s.WindowMenuButtonPosition = ImGuiDir_None;
+
+        auto rgb = [](int r, int g, int b, float a = 1.0f) { return ImVec4(r / 255.0f, g / 255.0f, b / 255.0f, a); };
+        const ImVec4 base   = rgb(24, 26, 33);
+        const ImVec4 panel  = rgb(33, 36, 45);
+        const ImVec4 panel2 = rgb(42, 46, 57);
+        const ImVec4 accent = rgb(78, 154, 241);
+        const ImVec4 accentH= rgb(108, 176, 255);
+        const ImVec4 text   = rgb(226, 229, 238);
+        const ImVec4 textD  = rgb(126, 132, 148);
+        const ImVec4 border = rgb(54, 58, 72);
+
         ImVec4* c = s.Colors;
-        const ImVec4 bg = ImVec4(0.13f, 0.14f, 0.17f, 1.0f);
-        const ImVec4 panel = ImVec4(0.17f, 0.18f, 0.22f, 1.0f);
-        const ImVec4 accent = ImVec4(0.20f, 0.50f, 0.90f, 1.0f);
-        c[ImGuiCol_WindowBg] = bg;
-        c[ImGuiCol_MenuBarBg] = ImVec4(0.10f, 0.11f, 0.13f, 1.0f);
-        c[ImGuiCol_Header] = panel; c[ImGuiCol_HeaderHovered] = ImVec4(0.25f, 0.27f, 0.32f, 1.0f);
-        c[ImGuiCol_HeaderActive] = accent;
-        c[ImGuiCol_Button] = panel; c[ImGuiCol_ButtonHovered] = ImVec4(0.25f, 0.45f, 0.75f, 1.0f);
-        c[ImGuiCol_ButtonActive] = accent;
-        c[ImGuiCol_FrameBg] = ImVec4(0.10f, 0.11f, 0.13f, 1.0f);
-        c[ImGuiCol_FrameBgHovered] = ImVec4(0.16f, 0.18f, 0.22f, 1.0f);
-        c[ImGuiCol_Tab] = ImVec4(0.12f, 0.13f, 0.16f, 1.0f);
-        c[ImGuiCol_TabActive] = accent; c[ImGuiCol_TabHovered] = ImVec4(0.25f, 0.45f, 0.75f, 1.0f);
-        c[ImGuiCol_TitleBgActive] = ImVec4(0.12f, 0.13f, 0.16f, 1.0f);
-        c[ImGuiCol_CheckMark] = accent; c[ImGuiCol_SliderGrab] = accent;
-        c[ImGuiCol_SeparatorHovered] = accent;
+        c[ImGuiCol_Text] = text;             c[ImGuiCol_TextDisabled] = textD;
+        c[ImGuiCol_WindowBg] = base;         c[ImGuiCol_ChildBg] = base;
+        c[ImGuiCol_PopupBg] = rgb(28, 30, 38);
+        c[ImGuiCol_Border] = border;         c[ImGuiCol_BorderShadow] = ImVec4(0, 0, 0, 0);
+        c[ImGuiCol_MenuBarBg] = rgb(20, 22, 28);
+        c[ImGuiCol_FrameBg] = panel;         c[ImGuiCol_FrameBgHovered] = panel2; c[ImGuiCol_FrameBgActive] = panel2;
+        c[ImGuiCol_TitleBg] = rgb(20, 22, 28); c[ImGuiCol_TitleBgActive] = rgb(20, 22, 28); c[ImGuiCol_TitleBgCollapsed] = rgb(20, 22, 28);
+        c[ImGuiCol_Header] = panel2;         c[ImGuiCol_HeaderHovered] = rgb(56, 62, 78); c[ImGuiCol_HeaderActive] = accent;
+        c[ImGuiCol_Button] = panel2;         c[ImGuiCol_ButtonHovered] = rgb(58, 96, 150); c[ImGuiCol_ButtonActive] = accent;
+        c[ImGuiCol_CheckMark] = accent;      c[ImGuiCol_SliderGrab] = accent; c[ImGuiCol_SliderGrabActive] = accentH;
+        c[ImGuiCol_Separator] = border;      c[ImGuiCol_SeparatorHovered] = accent; c[ImGuiCol_SeparatorActive] = accentH;
+        c[ImGuiCol_Tab] = panel;             c[ImGuiCol_TabHovered] = accentH; c[ImGuiCol_TabActive] = accent;
+        c[ImGuiCol_TabUnfocused] = panel;    c[ImGuiCol_TabUnfocusedActive] = panel2;
+        c[ImGuiCol_ScrollbarBg] = base;      c[ImGuiCol_ScrollbarGrab] = panel2; c[ImGuiCol_ScrollbarGrabHovered] = rgb(70, 76, 94);
+        c[ImGuiCol_ResizeGrip] = panel2;     c[ImGuiCol_ResizeGripHovered] = accent; c[ImGuiCol_ResizeGripActive] = accentH;
+        c[ImGuiCol_DockingPreview] = ImVec4(accent.x, accent.y, accent.z, 0.5f);
+        c[ImGuiCol_DragDropTarget] = rgb(255, 200, 80);
+    }
+
+    // Couleur d'une entité selon son comportement (pour la hiérarchie).
+    ImVec4 entityColor(Entity e) {
+        if (m_reg.has<Controllable>(e)) return ImVec4(0.45f, 0.70f, 1.00f, 1.0f); // joueur
+        if (m_reg.has<Chase>(e) || m_reg.has<Patrol>(e) || m_reg.has<Shooter>(e)) return ImVec4(1.00f, 0.45f, 0.45f, 1.0f); // ennemi
+        if (m_reg.has<Collectible>(e)) return ImVec4(1.00f, 0.82f, 0.30f, 1.0f); // piece
+        if (m_reg.has<Goal>(e))        return ImVec4(0.50f, 0.92f, 0.55f, 1.0f); // objectif
+        if (m_reg.has<Spawner>(e))     return ImVec4(0.74f, 0.55f, 1.00f, 1.0f); // generateur
+        if (m_reg.has<Tile>(e))        return ImVec4(0.80f, 0.66f, 0.45f, 1.0f); // tuile
+        return ImVec4(0.78f, 0.82f, 0.90f, 1.0f);
     }
 
     // ----------------------------------------------------------- presets
@@ -1037,7 +1068,10 @@ private:
                 ImGui::EndMenu();
             }
             ImGui::Separator();
-            if (ImGui::Button(m_playing ? " Stop " : " Play ")) { m_playing ? stop() : play(); }
+            ImGui::PushStyleColor(ImGuiCol_Button, m_playing ? ImVec4(0.80f, 0.28f, 0.28f, 1.0f) : ImVec4(0.22f, 0.62f, 0.32f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, m_playing ? ImVec4(0.90f, 0.38f, 0.38f, 1.0f) : ImVec4(0.30f, 0.72f, 0.40f, 1.0f));
+            if (ImGui::Button(m_playing ? "  Stop  " : "  Play  ")) { m_playing ? stop() : play(); }
+            ImGui::PopStyleColor(2);
             ImGui::SameLine();
             if (m_statusTimer > 0.0f)
                 ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.6f, 1.0f), "%s", m_status.c_str());
@@ -1092,7 +1126,9 @@ private:
         ImGui::Separator();
         for (Entity e : ents) {
             const std::string label = entityLabel(e) + componentSummary(e) + "##" + std::to_string(e);
+            ImGui::PushStyleColor(ImGuiCol_Text, entityColor(e));
             if (ImGui::Selectable(label.c_str(), e == m_selected)) m_selected = e;
+            ImGui::PopStyleColor();
         }
         ImGui::End();
     }
