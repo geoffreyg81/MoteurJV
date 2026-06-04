@@ -389,13 +389,14 @@ matière à contributions et à versions futures.
 - [x] **Redimensionner** les entités avec des poignées (fait) ; pivoter (à venir)
 - [x] **Grille & magnétisme** (snap) — fait ; règles & guides d'alignement (à venir)
 - [x] **Plusieurs niveaux** (`niveauN.json`, enchaînement) — fait ; onglets de scènes (à venir)
-- [ ] **Undo / Redo**
-- [ ] **Copier / coller / dupliquer** des entités
+- [x] **Annuler / Rétablir** (Ctrl+Z / Ctrl+Y) — fait
+- [x] **Copier / coller / dupliquer** des entités (Ctrl+C/V/D, Suppr) — fait
+- [x] **Renommer** les entités (nom dans l'inspecteur et la hiérarchie) — fait
+- [x] **Verrouiller / masquer** des entités — fait ; dossiers dans la hiérarchie (à venir)
 - [ ] **Multi-sélection** et édition groupée
 - [ ] **Mode peinture de tuiles** (poser/effacer en glissant, comme un tilemap)
 - [ ] **Pivoter** les entités (gizmo de rotation)
-- [ ] **Verrouiller / masquer** des entités, dossiers dans la hiérarchie
-- [ ] **Renommer** les entités, recherche/filtre dans la hiérarchie
+- [ ] **Recherche/filtre** dans la hiérarchie
 - [ ] **Aperçu des animations** dans l'inspecteur
 - [ ] **Importer un asset par glisser-déposer** depuis l'explorateur Windows
 - [ ] **Console de logs** intégrée, profileur (FPS, nb d'entités, draw calls)

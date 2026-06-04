@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -62,6 +63,8 @@ struct AnimSprite {                                           // sprite animé (
 struct Collectible { int points = 100; };                     // pièce à ramasser
 struct Goal {};                                               // objectif = fin de niveau
 struct Health { int lives = 3; };                             // vies du joueur
+struct Name { std::string value; };                           // nom affiché
+struct EditorFlags { bool locked = false; bool hidden = false; }; // verrou / masque (édition)
 
 class Editor : public Application {
 public:
@@ -120,6 +123,9 @@ private:
     float m_grid = 32.0f;
     int m_resizeHandle = -1; // coin en cours de redimensionnement (-1 = aucun)
     Vec2 m_fixedCorner;
+    std::vector<json> m_undo, m_redo;
+    json m_clipboard;
+    bool m_hasClipboard = false;
 
     void onStart() override {
         rlImGuiSetup(true);
@@ -189,19 +195,19 @@ private:
         m_reg.add<Transform2D>(e, Transform2D{pos});
         m_reg.add<RectShape>(e, RectShape{{220.0f, 28.0f}, mjv::Color{150, 110, 70, 255}});
         m_reg.add<AABB>(e, AABB{{110.0f, 14.0f}});
-        m_selected = e; setStatus("Plateforme creee"); return e;
+        m_reg.add<Name>(e, Name{"Plateforme"}); m_selected = e; setStatus("Plateforme creee"); return e;
     }
     Entity spawnCrate(Vec2 pos) {
         Entity e = makeSpriteEntity("crate.png", pos);
         m_reg.add<AABB>(e, AABB{m_reg.get<SpriteAsset>(e).size * 0.5f});
         m_reg.add<RigidBody>(e, RigidBody{});
-        m_selected = e; setStatus("Caisse creee"); return e;
+        m_reg.add<Name>(e, Name{"Caisse"}); m_selected = e; setStatus("Caisse creee"); return e;
     }
     // Tuile de sol : solide statique. À stamper en grille pour bâtir des plateformes.
     Entity spawnTile(Vec2 pos) {
         Entity e = makeSpriteEntity("tile.png", pos);
         m_reg.add<AABB>(e, AABB{m_reg.get<SpriteAsset>(e).size * 0.5f});
-        m_selected = e; setStatus("Tuile creee"); return e;
+        m_reg.add<Name>(e, Name{"Tuile"}); m_selected = e; setStatus("Tuile creee"); return e;
     }
     Entity spawnPlayer(Vec2 pos) {
         Entity e = m_reg.create();
@@ -213,26 +219,26 @@ private:
         m_reg.add<RigidBody>(e, RigidBody{});
         m_reg.add<Controllable>(e, Controllable{});
         m_reg.add<Health>(e, Health{});
-        m_selected = e; setStatus("Joueur cree (anime, jouable en Play)"); return e;
+        m_reg.add<Name>(e, Name{"Joueur"}); m_selected = e; setStatus("Joueur cree (anime, jouable en Play)"); return e;
     }
     Entity spawnEnemy(Vec2 pos) {
         Entity e = makeSpriteEntity("enemy.png", pos);
         m_reg.add<AABB>(e, AABB{m_reg.get<SpriteAsset>(e).size * 0.5f});
         m_reg.add<RigidBody>(e, RigidBody{});
         m_reg.add<Patrol>(e, Patrol{});
-        m_selected = e; setStatus("Ennemi cree (patrouille en Play)"); return e;
+        m_reg.add<Name>(e, Name{"Ennemi"}); m_selected = e; setStatus("Ennemi cree (patrouille en Play)"); return e;
     }
     // Pièce à ramasser : sprite SANS AABB (pas un mur solide, juste un trigger).
     Entity spawnCoin(Vec2 pos) {
         Entity e = makeSpriteEntity("coin.png", pos);
         m_reg.add<Collectible>(e, Collectible{});
-        m_selected = e; setStatus("Piece creee"); return e;
+        m_reg.add<Name>(e, Name{"Piece"}); m_selected = e; setStatus("Piece creee"); return e;
     }
     // Objectif de fin de niveau (trigger, sans collision physique).
     Entity spawnGoal(Vec2 pos) {
         Entity e = makeSpriteEntity("flag.png", pos);
         m_reg.add<Goal>(e, Goal{});
-        m_selected = e; setStatus("Objectif cree"); return e;
+        m_reg.add<Name>(e, Name{"Objectif"}); m_selected = e; setStatus("Objectif cree"); return e;
     }
     Entity spawnSprite(const std::string& path, Vec2 pos) {
         ::Texture2D& t = thumbnail(path);
@@ -241,7 +247,7 @@ private:
         m_reg.add<Transform2D>(e, Transform2D{pos});
         m_reg.add<AABB>(e, AABB{size * 0.5f});
         m_reg.add<SpriteAsset>(e, SpriteAsset{path, size});
-        m_selected = e; setStatus("Image ajoutee a la scene"); return e;
+        m_reg.add<Name>(e, Name{"Image"}); m_selected = e; setStatus("Image ajoutee a la scene"); return e;
     }
 
     // Un petit niveau de départ (qui défile).
@@ -407,7 +413,7 @@ private:
     // ----------------------------------------------------------------- update
     void onUpdate(float dt) override {
         if (m_statusTimer > 0.0f) m_statusTimer -= dt;
-        if (!m_playing) handleViewportInteraction();
+        if (!m_playing) { handleShortcuts(); handleViewportInteraction(); }
 
         if (m_playing) {
             // Fin de partie (Entree) : niveau suivant si gagné et s'il existe, sinon rejouer.
@@ -464,11 +470,23 @@ private:
     Entity pickEntity(Vec2 p) {
         Entity hit = NullEntity;
         m_reg.view<Transform2D>([&](Entity e, Transform2D& tr) {
+            if (isLocked(e) || isHidden(e)) return; // non sélectionnable
             const Vec2 h = halfExtents(e);
             if (std::abs(p.x - tr.position.x) <= h.x && std::abs(p.y - tr.position.y) <= h.y) hit = e;
         });
         return hit;
     }
+    void handleShortcuts() {
+        if (ImGui::GetIO().WantCaptureKeyboard) return;
+        const bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+        if (ctrl && IsKeyPressed(KEY_Z)) undoAction();
+        if (ctrl && IsKeyPressed(KEY_Y)) redoAction();
+        if (ctrl && IsKeyPressed(KEY_D)) duplicateSelected();
+        if (ctrl && IsKeyPressed(KEY_C)) copySelected();
+        if (ctrl && IsKeyPressed(KEY_V)) paste();
+        if (IsKeyPressed(KEY_DELETE))    deleteSelected();
+    }
+
     void handleViewportInteraction() {
         if (m_vpHovered) {
             // Zoom à la molette.
@@ -487,6 +505,7 @@ private:
         if (Input::mousePressed(Mouse::Left)) {
             const int handle = handleAt(w);
             if (handle >= 0) {
+                pushUndo(); // état avant redimensionnement
                 m_resizeHandle = handle;
                 const Vec2 c = m_reg.get<Transform2D>(m_selected).position;
                 const Vec2 h = halfExtents(m_selected);
@@ -494,7 +513,7 @@ private:
                 m_fixedCorner = cs[(handle + 2) % 4];
             } else {
                 const Entity hit = pickEntity(w);
-                if (hit != NullEntity) { m_selected = hit; m_dragging = true; m_dragOffset = m_reg.get<Transform2D>(hit).position - w; }
+                if (hit != NullEntity) { m_selected = hit; m_dragging = true; pushUndo(); m_dragOffset = m_reg.get<Transform2D>(hit).position - w; }
             }
         }
 
@@ -529,18 +548,21 @@ private:
         BeginMode2D(cam);
         if (!m_playing && m_snap) drawGrid();
 
-        m_reg.view<Transform2D, RectShape>([&](Entity, Transform2D& tr, RectShape& s) {
+        m_reg.view<Transform2D, RectShape>([&](Entity e, Transform2D& tr, RectShape& s) {
+            if (!m_playing && isHidden(e)) return;
             Graphics::drawRectangleCentered(tr.position, s.size, s.color, tr.rotation);
             Graphics::drawRectangleOutlineCentered(tr.position, s.size, mjv::Color{20, 20, 28, 255}, 1.5f);
         });
-        m_reg.view<Transform2D, SpriteAsset>([&](Entity, Transform2D& tr, SpriteAsset& sp) {
+        m_reg.view<Transform2D, SpriteAsset>([&](Entity e, Transform2D& tr, SpriteAsset& sp) {
+            if (!m_playing && isHidden(e)) return;
             ::Texture2D& t = thumbnail(sp.path);
             const ::Rectangle src{0, 0, static_cast<float>(t.width), static_cast<float>(t.height)};
             const ::Rectangle dst{tr.position.x, tr.position.y, sp.size.x * tr.scale.x, sp.size.y * tr.scale.y};
             DrawTexturePro(t, src, dst, ::Vector2{dst.width * 0.5f, dst.height * 0.5f}, tr.rotation, ::WHITE);
         });
         // Sprites animés (joueur).
-        m_reg.view<Transform2D, AnimSprite>([&](Entity, Transform2D& tr, AnimSprite& a) {
+        m_reg.view<Transform2D, AnimSprite>([&](Entity e, Transform2D& tr, AnimSprite& a) {
+            if (!m_playing && isHidden(e)) return;
             ::Texture2D& t = thumbnail(a.path);
             const bool walk = m_playing && a.walking;
             const int row = walk ? a.walkRow : a.idleRow;
@@ -665,21 +687,26 @@ private:
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Creer")) {
-                if (ImGui::MenuItem("Joueur"))     spawnPlayer({250.0f, 200.0f});
-                if (ImGui::MenuItem("Plateforme")) spawnPlatform({400.0f, 350.0f});
-                if (ImGui::MenuItem("Tuile"))      spawnTile(snap(m_camTarget));
-                if (ImGui::MenuItem("Caisse"))     spawnCrate({450.0f, 150.0f});
-                if (ImGui::MenuItem("Ennemi"))     spawnEnemy({500.0f, 200.0f});
-                if (ImGui::MenuItem("Piece"))      spawnCoin({550.0f, 300.0f});
-                if (ImGui::MenuItem("Objectif"))   spawnGoal({600.0f, 250.0f});
+                if (ImGui::MenuItem("Joueur"))     { pushUndo(); spawnPlayer({250.0f, 200.0f}); }
+                if (ImGui::MenuItem("Plateforme")) { pushUndo(); spawnPlatform({400.0f, 350.0f}); }
+                if (ImGui::MenuItem("Tuile"))      { pushUndo(); spawnTile(snap(m_camTarget)); }
+                if (ImGui::MenuItem("Caisse"))     { pushUndo(); spawnCrate({450.0f, 150.0f}); }
+                if (ImGui::MenuItem("Ennemi"))     { pushUndo(); spawnEnemy({500.0f, 200.0f}); }
+                if (ImGui::MenuItem("Piece"))      { pushUndo(); spawnCoin({550.0f, 300.0f}); }
+                if (ImGui::MenuItem("Objectif"))   { pushUndo(); spawnGoal({600.0f, 250.0f}); }
                 ImGui::Separator();
-                if (ImGui::MenuItem("Entite vide")) newEntity();
+                if (ImGui::MenuItem("Entite vide")) { pushUndo(); newEntity(); }
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Edition")) {
-                if (ImGui::MenuItem("Supprimer la selection", "Suppr", false, m_reg.valid(m_selected))) {
-                    m_reg.destroy(m_selected); m_selected = NullEntity;
-                }
+                if (ImGui::MenuItem("Annuler", "Ctrl+Z", false, !m_undo.empty())) undoAction();
+                if (ImGui::MenuItem("Retablir", "Ctrl+Y", false, !m_redo.empty())) redoAction();
+                ImGui::Separator();
+                const bool sel = m_reg.valid(m_selected);
+                if (ImGui::MenuItem("Dupliquer", "Ctrl+D", false, sel)) duplicateSelected();
+                if (ImGui::MenuItem("Copier", "Ctrl+C", false, sel)) copySelected();
+                if (ImGui::MenuItem("Coller", "Ctrl+V", false, m_hasClipboard)) paste();
+                if (ImGui::MenuItem("Supprimer", "Suppr", false, sel)) deleteSelected();
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Vue")) {
@@ -731,7 +758,7 @@ private:
         if (ImGui::BeginDragDropTarget()) {
             if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("ASSET_IMG")) {
                 const std::string path(static_cast<const char*>(pl->Data));
-                spawnSprite(path, screenToWorld(Input::mousePosition()));
+                pushUndo(); spawnSprite(path, screenToWorld(Input::mousePosition()));
             }
             ImGui::EndDragDropTarget();
         }
@@ -759,7 +786,7 @@ private:
         ImGui::TextDisabled("%d entites", static_cast<int>(ents.size()));
         ImGui::Separator();
         for (Entity e : ents) {
-            std::string label = "Entite " + std::to_string(e) + componentSummary(e);
+            const std::string label = entityLabel(e) + componentSummary(e) + "##" + std::to_string(e);
             if (ImGui::Selectable(label.c_str(), e == m_selected)) m_selected = e;
         }
         ImGui::End();
@@ -773,9 +800,22 @@ private:
             ImGui::End();
             return;
         }
-        ImGui::Text("Entite %u", m_selected);
+        // Nom de l'entité.
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%s", m_reg.has<Name>(m_selected) ? m_reg.get<Name>(m_selected).value.c_str() : "");
+        ImGui::SetNextItemWidth(-72.0f);
+        if (ImGui::InputText("##nom", buf, sizeof(buf))) {
+            if (!m_reg.has<Name>(m_selected)) m_reg.add<Name>(m_selected, Name{});
+            m_reg.get<Name>(m_selected).value = buf;
+        }
         ImGui::SameLine();
-        if (ImGui::SmallButton("Supprimer")) { m_reg.destroy(m_selected); m_selected = NullEntity; ImGui::End(); return; }
+        if (ImGui::SmallButton("Suppr.")) { deleteSelected(); ImGui::End(); return; }
+        // Verrou / masque.
+        bool locked = isLocked(m_selected), hidden = isHidden(m_selected);
+        if (ImGui::Checkbox("Verrouille", &locked)) ensureFlags(m_selected).locked = locked;
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Masque", &hidden)) ensureFlags(m_selected).hidden = hidden;
+        ImGui::TextDisabled("Entite #%u", m_selected);
         ImGui::Separator();
 
         if (m_reg.has<Transform2D>(m_selected) && ImGui::CollapsingHeader("Position / taille", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -895,7 +935,7 @@ private:
             ImGui::BeginGroup();
             if (ext == ".png" || ext == ".jpg") {
                 ::Texture2D& t = thumbnail(path);
-                if (rlImGuiImageButtonSize(name.c_str(), &t, ::Vector2{64, 64})) spawnSprite(path, {kWorldW * 0.5f, kWorldH * 0.5f});
+                if (rlImGuiImageButtonSize(name.c_str(), &t, ::Vector2{64, 64})) { pushUndo(); spawnSprite(path, {kWorldW * 0.5f, kWorldH * 0.5f}); }
                 if (ImGui::BeginDragDropSource()) {
                     ImGui::SetDragDropPayload("ASSET_IMG", path.c_str(), path.size() + 1);
                     rlImGuiImageSize(&t, 48, 48); ImGui::Text("%s", name.c_str());
@@ -943,29 +983,60 @@ private:
         m_score = keep;
     }
 
+    // Sérialise UNE entité (réutilisé par save, presse-papier, duplication, undo).
+    json entityToJson(Entity e) {
+        json je;
+        if (m_reg.has<Name>(e))        je["Name"] = m_reg.get<Name>(e).value;
+        if (m_reg.has<EditorFlags>(e)) { EditorFlags& f = m_reg.get<EditorFlags>(e); je["EditorFlags"] = {{"locked", f.locked}, {"hidden", f.hidden}}; }
+        if (m_reg.has<Transform2D>(e)) { Transform2D& t = m_reg.get<Transform2D>(e); je["Transform2D"] = {{"position", vecToJ(t.position)}, {"rotation", t.rotation}, {"scale", vecToJ(t.scale)}}; }
+        if (m_reg.has<RectShape>(e))   { RectShape& r = m_reg.get<RectShape>(e); je["RectShape"] = {{"size", vecToJ(r.size)}, {"color", json::array({r.color.r, r.color.g, r.color.b})}}; }
+        if (m_reg.has<AABB>(e))        je["AABB"] = {{"halfSize", vecToJ(m_reg.get<AABB>(e).halfSize)}};
+        if (m_reg.has<RigidBody>(e))   je["RigidBody"] = {{"gravityScale", m_reg.get<RigidBody>(e).gravityScale}};
+        if (m_reg.has<Controllable>(e)){ Controllable& c = m_reg.get<Controllable>(e); je["Controllable"] = {{"speed", c.speed}, {"jumpForce", c.jumpForce}}; }
+        if (m_reg.has<Patrol>(e))      { Patrol& p = m_reg.get<Patrol>(e); je["Patrol"] = {{"speed", p.speed}, {"range", p.range}}; }
+        if (m_reg.has<Collectible>(e)) je["Collectible"] = {{"points", m_reg.get<Collectible>(e).points}};
+        if (m_reg.has<Goal>(e))        je["Goal"] = true;
+        if (m_reg.has<Health>(e))      je["Health"] = {{"lives", m_reg.get<Health>(e).lives}};
+        if (m_reg.has<SpriteAsset>(e)) { SpriteAsset& sp = m_reg.get<SpriteAsset>(e); je["SpriteAsset"] = {{"path", sp.path}, {"size", vecToJ(sp.size)}}; }
+        if (m_reg.has<AnimSprite>(e)) {
+            AnimSprite& a = m_reg.get<AnimSprite>(e);
+            je["AnimSprite"] = {{"path", a.path}, {"fw", a.frameW}, {"fh", a.frameH},
+                                {"ir", a.idleRow}, {"if", a.idleFrames}, {"wr", a.walkRow},
+                                {"wf", a.walkFrames}, {"ft", a.frameTime}};
+        }
+        return je;
+    }
+
+    Entity createEntityFromJson(const json& je) {
+        Entity e = m_reg.create();
+        if (je.contains("Name"))        m_reg.add<Name>(e, Name{je["Name"].get<std::string>()});
+        if (je.contains("EditorFlags")) { const json& j = je["EditorFlags"]; EditorFlags f; f.locked = j["locked"].get<bool>(); f.hidden = j["hidden"].get<bool>(); m_reg.add<EditorFlags>(e, f); }
+        if (je.contains("Transform2D")) { const json& j = je["Transform2D"]; m_reg.add<Transform2D>(e, Transform2D{jToVec(j["position"]), j["rotation"].get<float>(), jToVec(j["scale"])}); }
+        if (je.contains("RectShape"))   { const json& j = je["RectShape"]; const json& c = j["color"]; m_reg.add<RectShape>(e, RectShape{jToVec(j["size"]), mjv::Color{c[0].get<std::uint8_t>(), c[1].get<std::uint8_t>(), c[2].get<std::uint8_t>(), 255}}); }
+        if (je.contains("AABB"))        m_reg.add<AABB>(e, AABB{jToVec(je["AABB"]["halfSize"])});
+        if (je.contains("RigidBody"))   { RigidBody rb; rb.gravityScale = je["RigidBody"]["gravityScale"].get<float>(); m_reg.add<RigidBody>(e, rb); }
+        if (je.contains("Controllable")){ const json& j = je["Controllable"]; m_reg.add<Controllable>(e, Controllable{j["speed"].get<float>(), j["jumpForce"].get<float>()}); }
+        if (je.contains("Patrol"))      { const json& j = je["Patrol"]; Patrol p; p.speed = j["speed"].get<float>(); p.range = j["range"].get<float>(); m_reg.add<Patrol>(e, p); }
+        if (je.contains("Collectible")) m_reg.add<Collectible>(e, Collectible{je["Collectible"]["points"].get<int>()});
+        if (je.contains("Goal"))        m_reg.add<Goal>(e, Goal{});
+        if (je.contains("Health"))      m_reg.add<Health>(e, Health{je["Health"]["lives"].get<int>()});
+        if (je.contains("SpriteAsset")) { const json& j = je["SpriteAsset"]; m_reg.add<SpriteAsset>(e, SpriteAsset{j["path"].get<std::string>(), jToVec(j["size"])}); }
+        if (je.contains("AnimSprite")) {
+            const json& j = je["AnimSprite"];
+            AnimSprite a; a.path = j["path"].get<std::string>();
+            a.frameW = j["fw"].get<int>(); a.frameH = j["fh"].get<int>();
+            a.idleRow = j["ir"].get<int>(); a.idleFrames = j["if"].get<int>();
+            a.walkRow = j["wr"].get<int>(); a.walkFrames = j["wf"].get<int>();
+            a.frameTime = j["ft"].get<float>();
+            m_reg.add<AnimSprite>(e, a);
+        }
+        return e;
+    }
+
     json sceneToJson() {
         json doc; doc["entities"] = json::array();
         doc["timeLimit"] = m_timeLimit;
-        for (Entity e : m_reg.entities()) {
-            json je;
-            if (m_reg.has<Transform2D>(e)) { Transform2D& t = m_reg.get<Transform2D>(e); je["Transform2D"] = {{"position", vecToJ(t.position)}, {"rotation", t.rotation}, {"scale", vecToJ(t.scale)}}; }
-            if (m_reg.has<RectShape>(e))   { RectShape& r = m_reg.get<RectShape>(e); je["RectShape"] = {{"size", vecToJ(r.size)}, {"color", json::array({r.color.r, r.color.g, r.color.b})}}; }
-            if (m_reg.has<AABB>(e))        je["AABB"] = {{"halfSize", vecToJ(m_reg.get<AABB>(e).halfSize)}};
-            if (m_reg.has<RigidBody>(e))   je["RigidBody"] = {{"gravityScale", m_reg.get<RigidBody>(e).gravityScale}};
-            if (m_reg.has<Controllable>(e)){ Controllable& c = m_reg.get<Controllable>(e); je["Controllable"] = {{"speed", c.speed}, {"jumpForce", c.jumpForce}}; }
-            if (m_reg.has<Patrol>(e))      { Patrol& p = m_reg.get<Patrol>(e); je["Patrol"] = {{"speed", p.speed}, {"range", p.range}}; }
-            if (m_reg.has<Collectible>(e)) je["Collectible"] = {{"points", m_reg.get<Collectible>(e).points}};
-            if (m_reg.has<Goal>(e))        je["Goal"] = true;
-            if (m_reg.has<Health>(e))      je["Health"] = {{"lives", m_reg.get<Health>(e).lives}};
-            if (m_reg.has<SpriteAsset>(e)) { SpriteAsset& sp = m_reg.get<SpriteAsset>(e); je["SpriteAsset"] = {{"path", sp.path}, {"size", vecToJ(sp.size)}}; }
-            if (m_reg.has<AnimSprite>(e)) {
-                AnimSprite& a = m_reg.get<AnimSprite>(e);
-                je["AnimSprite"] = {{"path", a.path}, {"fw", a.frameW}, {"fh", a.frameH},
-                                    {"ir", a.idleRow}, {"if", a.idleFrames}, {"wr", a.walkRow},
-                                    {"wf", a.walkFrames}, {"ft", a.frameTime}};
-            }
-            doc["entities"].push_back(je);
-        }
+        for (Entity e : m_reg.entities()) doc["entities"].push_back(entityToJson(e));
         return doc;
     }
 
@@ -973,28 +1044,58 @@ private:
         m_reg.clear(); m_selected = NullEntity;
         m_timeLimit = doc.value("timeLimit", 0.0f);
         if (!doc.contains("entities")) return;
-        for (const json& je : doc["entities"]) {
-            Entity e = m_reg.create();
-            if (je.contains("Transform2D")) { const json& j = je["Transform2D"]; m_reg.add<Transform2D>(e, Transform2D{jToVec(j["position"]), j["rotation"].get<float>(), jToVec(j["scale"])}); }
-            if (je.contains("RectShape"))   { const json& j = je["RectShape"]; const json& c = j["color"]; m_reg.add<RectShape>(e, RectShape{jToVec(j["size"]), mjv::Color{c[0].get<std::uint8_t>(), c[1].get<std::uint8_t>(), c[2].get<std::uint8_t>(), 255}}); }
-            if (je.contains("AABB"))        m_reg.add<AABB>(e, AABB{jToVec(je["AABB"]["halfSize"])});
-            if (je.contains("RigidBody"))   { RigidBody rb; rb.gravityScale = je["RigidBody"]["gravityScale"].get<float>(); m_reg.add<RigidBody>(e, rb); }
-            if (je.contains("Controllable")){ const json& j = je["Controllable"]; m_reg.add<Controllable>(e, Controllable{j["speed"].get<float>(), j["jumpForce"].get<float>()}); }
-            if (je.contains("Patrol"))      { const json& j = je["Patrol"]; Patrol p; p.speed = j["speed"].get<float>(); p.range = j["range"].get<float>(); m_reg.add<Patrol>(e, p); }
-            if (je.contains("Collectible")) m_reg.add<Collectible>(e, Collectible{je["Collectible"]["points"].get<int>()});
-            if (je.contains("Goal"))        m_reg.add<Goal>(e, Goal{});
-            if (je.contains("Health"))      m_reg.add<Health>(e, Health{je["Health"]["lives"].get<int>()});
-            if (je.contains("SpriteAsset")) { const json& j = je["SpriteAsset"]; m_reg.add<SpriteAsset>(e, SpriteAsset{j["path"].get<std::string>(), jToVec(j["size"])}); }
-            if (je.contains("AnimSprite")) {
-                const json& j = je["AnimSprite"];
-                AnimSprite a; a.path = j["path"].get<std::string>();
-                a.frameW = j["fw"].get<int>(); a.frameH = j["fh"].get<int>();
-                a.idleRow = j["ir"].get<int>(); a.idleFrames = j["if"].get<int>();
-                a.walkRow = j["wr"].get<int>(); a.walkFrames = j["wf"].get<int>();
-                a.frameTime = j["ft"].get<float>();
-                m_reg.add<AnimSprite>(e, a);
-            }
-        }
+        for (const json& je : doc["entities"]) createEntityFromJson(je);
+    }
+
+    // --- Annuler / Rétablir, presse-papier ---
+    void pushUndo() {
+        m_undo.push_back(sceneToJson());
+        if (m_undo.size() > 60) m_undo.erase(m_undo.begin());
+        m_redo.clear();
+    }
+    void undoAction() {
+        if (m_undo.empty()) { setStatus("Rien a annuler"); return; }
+        m_redo.push_back(sceneToJson());
+        const json s = m_undo.back(); m_undo.pop_back();
+        jsonToScene(s); setStatus("Annule");
+    }
+    void redoAction() {
+        if (m_redo.empty()) { setStatus("Rien a retablir"); return; }
+        m_undo.push_back(sceneToJson());
+        const json s = m_redo.back(); m_redo.pop_back();
+        jsonToScene(s); setStatus("Retabli");
+    }
+    void duplicateSelected() {
+        if (!m_reg.valid(m_selected)) return;
+        pushUndo();
+        Entity e = createEntityFromJson(entityToJson(m_selected));
+        if (m_reg.has<Transform2D>(e)) m_reg.get<Transform2D>(e).position += {24.0f, 24.0f};
+        m_selected = e; setStatus("Duplique");
+    }
+    void copySelected() {
+        if (!m_reg.valid(m_selected)) return;
+        m_clipboard = entityToJson(m_selected); m_hasClipboard = true; setStatus("Copie");
+    }
+    void paste() {
+        if (!m_hasClipboard) return;
+        pushUndo();
+        Entity e = createEntityFromJson(m_clipboard);
+        if (m_reg.has<Transform2D>(e)) m_reg.get<Transform2D>(e).position += {24.0f, 24.0f};
+        m_selected = e; setStatus("Colle");
+    }
+    void deleteSelected() {
+        if (!m_reg.valid(m_selected)) return;
+        pushUndo(); m_reg.destroy(m_selected); m_selected = NullEntity; setStatus("Supprime");
+    }
+    bool isHidden(Entity e) { return m_reg.has<EditorFlags>(e) && m_reg.get<EditorFlags>(e).hidden; }
+    bool isLocked(Entity e) { return m_reg.has<EditorFlags>(e) && m_reg.get<EditorFlags>(e).locked; }
+    EditorFlags& ensureFlags(Entity e) { if (!m_reg.has<EditorFlags>(e)) m_reg.add<EditorFlags>(e, EditorFlags{}); return m_reg.get<EditorFlags>(e); }
+    std::string entityLabel(Entity e) {
+        std::string base = m_reg.has<Name>(e) && !m_reg.get<Name>(e).value.empty()
+                               ? m_reg.get<Name>(e).value : ("Entite " + std::to_string(e));
+        if (isLocked(e)) base = "[V] " + base;
+        if (isHidden(e)) base = "[M] " + base;
+        return base;
     }
 
     void setStatus(const std::string& s) { m_status = s; m_statusTimer = 3.0f; }
