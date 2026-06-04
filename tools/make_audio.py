@@ -86,6 +86,9 @@ write_wav(os.path.join(assets, "win.wav"), win)
 # --- Défaite : descente "game over" ------------------------------------------
 write_wav(os.path.join(assets, "lose.wav"), sweep(420, 110, 0.55, vol=0.5, decay=3.5))
 
+# --- Tir : petit laser descendant --------------------------------------------
+write_wav(os.path.join(assets, "shoot.wav"), sweep(900, 300, 0.10, vol=0.35, decay=14.0))
+
 # --- Pièce ramassée : deux notes claires ascendantes -------------------------
 coin = tone(988, 0.05, vol=0.4, decay=10.0) + tone(1319, 0.10, vol=0.4, decay=8.0)
 write_wav(os.path.join(assets, "coin.wav"), coin)

@@ -126,7 +126,11 @@ private:
     float m_timeLimit = 0.0f;    // limite de temps du niveau (0 = aucune)
     float m_timeLeft = 0.0f;
     int m_levelNum = 1;          // niveau courant (niveauN.json)
-    mjv::Sound m_sfxCoin, m_sfxWin, m_sfxLose, m_sfxHit;
+    mjv::Sound m_sfxCoin, m_sfxWin, m_sfxLose, m_sfxHit, m_sfxShoot;
+    mjv::Music m_music;
+    float m_musicVol = 0.5f, m_sfxVol = 0.85f;
+    bool m_muted = false;
+    bool m_musicStarted = false, m_musicPlaying = false;
 
     ::RenderTexture2D m_target{};
     bool m_layoutInit = false;
@@ -164,6 +168,10 @@ private:
         m_sfxWin.load(dir + "win.wav");
         m_sfxLose.load(dir + "lose.wav");
         m_sfxHit.load(dir + "bump.wav");
+        m_sfxShoot.load(dir + "shoot.wav");
+        m_music.load(dir + "music.wav");
+        m_music.setLooping(true);
+        applyVolumes();
         // Au 1er lancement, crée deux niveaux de démo sur le disque.
         if (!loadLevel(1)) {
             buildScene();   saveLevel();      // niveau 1
@@ -353,6 +361,7 @@ private:
         m_score = 0; m_won = false; m_lost = false; m_invuln = 0.0f;
         m_particles.clear(); m_shake = 0.0f;
         m_paused = false; m_menuIndex = 0; m_titleActive = m_titleScreen;
+        m_musicStarted = false; m_musicPlaying = false;
         m_timeLeft = m_timeLimit;
         Vec2 sp; if (firstPlayer(sp)) m_playerSpawn = sp;
         setStatus("Lecture - Stop pour revenir a l'edition");
@@ -360,6 +369,7 @@ private:
     void stop() {
         m_playing = false;
         m_particles.clear(); m_shake = 0.0f;
+        m_music.stop(); m_musicStarted = false; m_musicPlaying = false;
         jsonToScene(m_snapshot);
         setStatus("Edition");
     }
@@ -374,6 +384,7 @@ private:
         jsonToScene(m_snapshot);
         m_score = 0; m_won = false; m_lost = false; m_paused = false; m_invuln = 0.0f;
         m_particles.clear(); m_shake = 0.0f; m_menuIndex = 0; m_titleActive = false;
+        m_music.stop(); m_musicStarted = false; m_musicPlaying = false;
         m_timeLeft = m_timeLimit;
         Vec2 sp; if (firstPlayer(sp)) m_playerSpawn = sp;
     }
@@ -484,6 +495,7 @@ private:
                 s.timer = 0.0f;
                 const Vec2 dir = dist > 0.0f ? Vec2{dx / dist, dy / dist} : Vec2{1.0f, 0.0f};
                 shots.push_back({tr.position, dir * s.bulletSpeed});
+                m_sfxShoot.play();
             }
         });
         for (const auto& sh : shots) spawnProjectile(sh.first, sh.second);
@@ -636,7 +648,19 @@ private:
                 m_shake = std::max(0.0f, m_shake - dt);
             }
         }
+        // Musique de fond : seulement pendant le jeu (pas en édition/titre/pause/fin).
+        const bool wantMusic = m_playing && !m_titleActive && !m_paused && !m_won && !m_lost;
+        if (wantMusic && !m_musicPlaying) { if (!m_musicStarted) { m_music.play(); m_musicStarted = true; } else m_music.resume(); m_musicPlaying = true; }
+        else if (!wantMusic && m_musicPlaying) { m_music.pause(); m_musicPlaying = false; }
         renderSceneToTexture();
+    }
+
+    void applyVolumes() {
+        const float sfx = m_muted ? 0.0f : m_sfxVol;
+        const float mus = m_muted ? 0.0f : m_musicVol;
+        m_sfxCoin.setVolume(sfx); m_sfxWin.setVolume(sfx); m_sfxLose.setVolume(sfx);
+        m_sfxHit.setVolume(sfx); m_sfxShoot.setVolume(sfx);
+        m_music.setVolume(mus);
     }
 
     int playerLives() {
@@ -1004,6 +1028,14 @@ private:
                 ImGui::TextDisabled("0 = pas de limite");
                 ImGui::EndMenu();
             }
+            if (ImGui::BeginMenu("Audio")) {
+                ImGui::SetNextItemWidth(160);
+                if (ImGui::SliderFloat("Musique", &m_musicVol, 0.0f, 1.0f)) applyVolumes();
+                ImGui::SetNextItemWidth(160);
+                if (ImGui::SliderFloat("Effets", &m_sfxVol, 0.0f, 1.0f)) applyVolumes();
+                if (ImGui::Checkbox("Muet", &m_muted)) applyVolumes();
+                ImGui::EndMenu();
+            }
             ImGui::Separator();
             if (ImGui::Button(m_playing ? " Stop " : " Play ")) { m_playing ? stop() : play(); }
             ImGui::SameLine();
@@ -1279,6 +1311,7 @@ private:
         m_won = false; m_lost = false; m_invuln = 0.0f;
         m_paused = false; m_menuIndex = 0; m_particles.clear(); m_shake = 0.0f;
         m_titleActive = m_titleScreen;
+        m_music.stop(); m_musicStarted = false; m_musicPlaying = false;
         m_timeLeft = m_timeLimit;
         Vec2 sp; if (firstPlayer(sp)) m_playerSpawn = sp;
         m_score = keep;

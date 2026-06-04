@@ -382,8 +382,10 @@ matière à contributions et à versions futures.
 - [ ] **Système d'inventaire / stats** générique
 
 ### 🔊 Audio
+- [x] **Volumes séparés** musique / effets + muet (menu Audio) — fait
+- [x] **Musique de fond** du niveau (jouée en jeu, en pause sur le menu pause) — fait
 - [ ] **Sons spatialisés** (volume selon la distance)
-- [ ] **Bus & mixage** (volumes musique / SFX séparés, fondu)
+- [ ] **Fondu** (fade in/out) entre musiques
 - [ ] **Pool de voix** (jouer plusieurs fois le même son sans coupure)
 
 ### 🖥️ Éditeur
