@@ -43,4 +43,8 @@ struct RigidBody {
     bool onGround = false;
 };
 
+// Solide traversable par le dessous (one-way) : on ne s'y pose que par le haut,
+// en descendant. À mettre sur une entité statique (AABB sans RigidBody).
+struct OneWay {};
+
 } // namespace mjv

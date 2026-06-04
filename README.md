@@ -413,8 +413,9 @@ matière à contributions et à versions futures.
 
 ### 🧮 Physique & collisions
 - [x] **Collision dynamique ↔ dynamique** (les corps se poussent / s'empilent) — fait
-- [ ] **Pentes et plateformes traversables** (one-way platforms)
-- [ ] **Triggers / zones** (détecter une entrée sans bloquer)
+- [x] **Plateformes traversables** (one-way : passe par le bas, se pose dessus) — fait
+- [x] **Triggers / zones** : composant `Hazard` (piège, contact = perte de vie) — fait
+- [ ] **Pentes** (slopes)
 - [ ] **Raycast 2D** (tir, ligne de vue, capteurs)
 - [ ] **Collisions circulaires et polygonales** (pas que des AABB)
 - [ ] **Intégration Box2D** optionnelle (joints, ressorts, forces, friction)

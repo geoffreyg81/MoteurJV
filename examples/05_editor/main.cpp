@@ -11,6 +11,7 @@
 // L'éditeur s'appuie uniquement sur l'API publique mjv:: (ECS, physique, rendu).
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -52,6 +53,7 @@ struct Controllable {                                         // "joueur"
 };
 struct Particle { Vec2 pos, vel; float life = 0, maxLife = 0; mjv::Color color; };
 struct Tile {};                                               // tuile peinte (pour effacer/repérer)
+struct Hazard {};                                             // piège : contact = perte de vie
 struct Chase { float speed = 130.0f; float range = 360.0f; bool jump = true; };  // poursuit le joueur
 struct Shooter { float interval = 1.6f; float bulletSpeed = 330.0f; float range = 480.0f; float timer = 0.0f; }; // tire
 struct Projectile { Vec2 vel; float life = 3.0f; };           // tir (runtime)
@@ -152,6 +154,8 @@ private:
     float m_grid = 32.0f;
     int m_resizeHandle = -1; // coin en cours de redimensionnement (-1 = aucun)
     Vec2 m_fixedCorner;
+    bool m_rotating = false;
+    char m_hierFilter[48] = {0};
     std::vector<json> m_undo, m_redo;
     json m_clipboard;
     bool m_hasClipboard = false;
@@ -312,6 +316,13 @@ private:
         m_reg.add<RectShape>(e, RectShape{{44.0f, 44.0f}, mjv::Color{150, 90, 200, 255}});
         m_reg.add<Spawner>(e, Spawner{});
         m_reg.add<Name>(e, Name{"Generateur"}); m_selected = e; setStatus("Generateur cree"); return e;
+    }
+    Entity spawnHazard(Vec2 pos) {
+        Entity e = m_reg.create();
+        m_reg.add<Transform2D>(e, Transform2D{pos});
+        m_reg.add<RectShape>(e, RectShape{{42.0f, 18.0f}, mjv::Color{200, 40, 40, 255}});
+        m_reg.add<Hazard>(e, Hazard{}); // pas d'AABB : déclencheur, pas un mur solide
+        m_reg.add<Name>(e, Name{"Piege"}); m_selected = e; setStatus("Piege cree"); return e;
     }
     // Pièce à ramasser : sprite SANS AABB (pas un mur solide, juste un trigger).
     Entity spawnCoin(Vec2 pos) {
@@ -641,6 +652,11 @@ private:
                 for (const P& p : players)
                     if (aabbOverlap(p.c, {p.h.x + 3.0f, p.h.y + 3.0f}, t.position, h)) { hitPlayer(p.e); return; }
             });
+            m_reg.view<Hazard, Transform2D>([&](Entity e, Hazard&, Transform2D& t) {
+                const Vec2 h = halfExtents(e);
+                for (const P& p : players)
+                    if (aabbOverlap(p.c, p.h, t.position, h)) { hitPlayer(p.e); return; }
+            });
         }
         m_reg.view<Goal, Transform2D>([&](Entity e, Goal&, Transform2D& t) {
             const Vec2 h = halfExtents(e);
@@ -801,21 +817,32 @@ private:
 
         const Vec2 w = screenToWorld(Input::mousePosition());
         if (Input::mousePressed(Mouse::Left)) {
-            const int handle = handleAt(w);
-            if (handle >= 0) {
-                pushUndo(); // état avant redimensionnement
-                m_resizeHandle = handle;
-                const Vec2 c = m_reg.get<Transform2D>(m_selected).position;
-                const Vec2 h = halfExtents(m_selected);
-                const Vec2 cs[4] = {{c.x - h.x, c.y - h.y}, {c.x + h.x, c.y - h.y}, {c.x + h.x, c.y + h.y}, {c.x - h.x, c.y + h.y}};
-                m_fixedCorner = cs[(handle + 2) % 4];
-            } else {
-                const Entity hit = pickEntity(w);
-                if (hit != NullEntity) { m_selected = hit; m_dragging = true; pushUndo(); m_dragOffset = m_reg.get<Transform2D>(hit).position - w; }
+            const float thr = 12.0f / m_zoom;
+            bool onRotate = false;
+            if (m_reg.valid(m_selected) && m_reg.has<Transform2D>(m_selected)) {
+                const Vec2 rh = rotateHandlePos(m_selected);
+                if (std::abs(w.x - rh.x) <= thr && std::abs(w.y - rh.y) <= thr) { pushUndo(); m_rotating = true; onRotate = true; }
+            }
+            if (!onRotate) {
+                const int handle = handleAt(w);
+                if (handle >= 0) {
+                    pushUndo(); // état avant redimensionnement
+                    m_resizeHandle = handle;
+                    const Vec2 c = m_reg.get<Transform2D>(m_selected).position;
+                    const Vec2 h = halfExtents(m_selected);
+                    const Vec2 cs[4] = {{c.x - h.x, c.y - h.y}, {c.x + h.x, c.y - h.y}, {c.x + h.x, c.y + h.y}, {c.x - h.x, c.y + h.y}};
+                    m_fixedCorner = cs[(handle + 2) % 4];
+                } else {
+                    const Entity hit = pickEntity(w);
+                    if (hit != NullEntity) { m_selected = hit; m_dragging = true; pushUndo(); m_dragOffset = m_reg.get<Transform2D>(hit).position - w; }
+                }
             }
         }
 
-        if (m_resizeHandle >= 0 && Input::mouseDown(Mouse::Left) && m_reg.valid(m_selected)) {
+        if (m_rotating && Input::mouseDown(Mouse::Left) && m_reg.valid(m_selected) && m_reg.has<Transform2D>(m_selected)) {
+            const Vec2 c = m_reg.get<Transform2D>(m_selected).position;
+            m_reg.get<Transform2D>(m_selected).rotation = std::atan2(w.x - c.x, -(w.y - c.y)) * 57.2958f;
+        } else if (m_resizeHandle >= 0 && Input::mouseDown(Mouse::Left) && m_reg.valid(m_selected)) {
             const Vec2 nc = snap(w);
             const Vec2 center = (nc + m_fixedCorner) * 0.5f;
             const Vec2 half{std::max(8.0f, std::abs(nc.x - m_fixedCorner.x) * 0.5f),
@@ -828,7 +855,14 @@ private:
             m_reg.get<Transform2D>(m_selected).position = snap(w + m_dragOffset);
             if (m_reg.has<RigidBody>(m_selected)) m_reg.get<RigidBody>(m_selected).velocity = {0.0f, 0.0f};
         }
-        if (Input::mouseReleased(Mouse::Left)) { m_dragging = false; m_resizeHandle = -1; }
+        if (Input::mouseReleased(Mouse::Left)) { m_dragging = false; m_resizeHandle = -1; m_rotating = false; }
+    }
+
+    Vec2 rotateHandlePos(Entity e) {
+        const Transform2D& t = m_reg.get<Transform2D>(e);
+        const float r = t.rotation * 0.0174533f;
+        const float dist = halfExtents(e).y + 24.0f / m_zoom;
+        return {t.position.x + std::sin(r) * dist, t.position.y - std::cos(r) * dist};
     }
 
     void renderSceneToTexture() {
@@ -883,9 +917,13 @@ private:
         }
         if (!m_playing && m_reg.valid(m_selected) && m_reg.has<Transform2D>(m_selected)) {
             const Vec2 h = halfExtents(m_selected);
-            Graphics::drawRectangleOutlineCentered(m_reg.get<Transform2D>(m_selected).position,
-                                                   h * 2.0f + Vec2{8, 8}, Colors::Yellow, 2.5f);
+            const Vec2 sc = m_reg.get<Transform2D>(m_selected).position;
+            Graphics::drawRectangleOutlineCentered(sc, h * 2.0f + Vec2{8, 8}, Colors::Yellow, 2.5f);
             drawHandles(m_selected);
+            // Poignée de rotation (cercle vert relié au centre).
+            const Vec2 rh = rotateHandlePos(m_selected);
+            DrawLine(static_cast<int>(sc.x), static_cast<int>(sc.y), static_cast<int>(rh.x), static_cast<int>(rh.y), ::Color{60, 180, 255, 200});
+            DrawCircle(static_cast<int>(rh.x), static_cast<int>(rh.y), 6.0f / m_zoom, ::Color{90, 210, 120, 255});
         }
         EndMode2D();
         if (m_playing) drawHud();
@@ -1021,6 +1059,7 @@ private:
                 if (ImGui::MenuItem("Generateur")) { pushUndo(); spawnSpawner({500.0f, 200.0f}); }
                 if (ImGui::MenuItem("Piece"))      { pushUndo(); spawnCoin({550.0f, 300.0f}); }
                 if (ImGui::MenuItem("Objectif"))   { pushUndo(); spawnGoal({600.0f, 250.0f}); }
+                if (ImGui::MenuItem("Piege"))      { pushUndo(); spawnHazard({560.0f, 350.0f}); }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Entite vide")) { pushUndo(); newEntity(); }
                 ImGui::EndMenu();
@@ -1126,6 +1165,8 @@ private:
         if (m_reg.has<Patrol>(e))       s += "E";
         if (m_reg.has<Collectible>(e))  s += "$";
         if (m_reg.has<Goal>(e))         s += "O";
+        if (m_reg.has<Hazard>(e))       s += "!";
+        if (m_reg.has<OneWay>(e))       s += "~";
         if (m_reg.has<Health>(e))       s += "H";
         if (m_reg.has<RigidBody>(e))    s += "P";
         if (m_reg.has<AnimSprite>(e))   s += "A";
@@ -1134,13 +1175,22 @@ private:
         return s + "]";
     }
 
+    static std::string lower(std::string s) {
+        for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return s;
+    }
     void drawHierarchy() {
         ImGui::Begin("Hierarchie");
         const std::vector<Entity> ents = m_reg.entities();
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::InputTextWithHint("##recherche", "Rechercher...", m_hierFilter, sizeof(m_hierFilter));
+        const std::string filter = lower(m_hierFilter);
         ImGui::TextDisabled("%d entites", static_cast<int>(ents.size()));
         ImGui::Separator();
         for (Entity e : ents) {
-            const std::string label = entityLabel(e) + componentSummary(e) + "##" + std::to_string(e);
+            const std::string name = entityLabel(e);
+            if (!filter.empty() && lower(name).find(filter) == std::string::npos) continue;
+            const std::string label = name + componentSummary(e) + "##" + std::to_string(e);
             ImGui::PushStyleColor(ImGuiCol_Text, entityColor(e));
             if (ImGui::Selectable(label.c_str(), e == m_selected)) m_selected = e;
             ImGui::PopStyleColor();
@@ -1256,6 +1306,13 @@ private:
             ImGui::DragInt("nombre de vies", &m_reg.get<Health>(m_selected).lives, 1.0f, 1, 99);
         }
 
+        if (m_reg.has<AABB>(m_selected)) {
+            bool ow = m_reg.has<OneWay>(m_selected);
+            if (ImGui::Checkbox("Traversable par le bas (one-way)", &ow)) {
+                if (ow) m_reg.add<OneWay>(m_selected); else m_reg.remove<OneWay>(m_selected);
+            }
+        }
+
         ImGui::Separator();
         ImGui::TextDisabled("Ajouter un comportement :");
         if (!m_reg.has<RigidBody>(m_selected)    && ImGui::Button("+ Physique"))  m_reg.add<RigidBody>(m_selected);
@@ -1272,6 +1329,8 @@ private:
         if (!m_reg.has<Goal>(m_selected)         && ImGui::Button("+ Objectif"))  m_reg.add<Goal>(m_selected);
         ImGui::SameLine();
         if (!m_reg.has<Health>(m_selected)       && ImGui::Button("+ Vies"))      m_reg.add<Health>(m_selected);
+        ImGui::SameLine();
+        if (!m_reg.has<Hazard>(m_selected)       && ImGui::Button("+ Piege"))     m_reg.add<Hazard>(m_selected);
         if (!m_reg.has<RectShape>(m_selected)     && ImGui::Button("+ Rectangle")) m_reg.add<RectShape>(m_selected, RectShape{{40, 40}, Colors::Blue});
         if (!m_reg.has<AABB>(m_selected)          && ImGui::Button("+ Collision")) m_reg.add<AABB>(m_selected, AABB{halfExtents(m_selected)});
         ImGui::End();
@@ -1436,6 +1495,8 @@ private:
         if (m_reg.has<Spawner>(e))     { Spawner& sp = m_reg.get<Spawner>(e); je["Spawner"] = {{"interval", sp.interval}, {"maxAlive", sp.maxAlive}, {"kind", sp.kind}}; }
         if (m_reg.has<Collectible>(e)) je["Collectible"] = {{"points", m_reg.get<Collectible>(e).points}};
         if (m_reg.has<Goal>(e))        je["Goal"] = true;
+        if (m_reg.has<Hazard>(e))      je["Hazard"] = true;
+        if (m_reg.has<OneWay>(e))      je["OneWay"] = true;
         if (m_reg.has<Tile>(e))        je["Tile"] = true;
         if (m_reg.has<Health>(e))      je["Health"] = {{"lives", m_reg.get<Health>(e).lives}};
         if (m_reg.has<SpriteAsset>(e)) { SpriteAsset& sp = m_reg.get<SpriteAsset>(e); je["SpriteAsset"] = {{"path", sp.path}, {"size", vecToJ(sp.size)}}; }
@@ -1463,6 +1524,8 @@ private:
         if (je.contains("Spawner"))     { const json& j = je["Spawner"]; Spawner sp; sp.interval = j["interval"].get<float>(); sp.maxAlive = j["maxAlive"].get<int>(); sp.kind = j["kind"].get<int>(); m_reg.add<Spawner>(e, sp); }
         if (je.contains("Collectible")) m_reg.add<Collectible>(e, Collectible{je["Collectible"]["points"].get<int>()});
         if (je.contains("Goal"))        m_reg.add<Goal>(e, Goal{});
+        if (je.contains("Hazard"))      m_reg.add<Hazard>(e, Hazard{});
+        if (je.contains("OneWay"))      m_reg.add<OneWay>(e, OneWay{});
         if (je.contains("Tile"))        m_reg.add<Tile>(e, Tile{});
         if (je.contains("Health"))      m_reg.add<Health>(e, Health{je["Health"]["lives"].get<int>()});
         if (je.contains("SpriteAsset")) { const json& j = je["SpriteAsset"]; m_reg.add<SpriteAsset>(e, SpriteAsset{j["path"].get<std::string>(), jToVec(j["size"])}); }

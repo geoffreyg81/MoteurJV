@@ -23,10 +23,10 @@ namespace mjv {
 // platformers, qui donne un comportement propre contre les murs et le sol, et
 // permet de détecter l'appui au sol (onGround).
 inline void physicsStep(Registry& reg, float dt, Vec2 gravity) {
-    struct Box { Vec2 center; Vec2 half; };
+    struct Box { Vec2 center; Vec2 half; bool oneWay; };
     std::vector<Box> statics;
     reg.view<AABB, Transform2D>([&](Entity e, AABB& box, Transform2D& tr) {
-        if (!reg.has<RigidBody>(e)) statics.push_back({tr.position, box.halfSize});
+        if (!reg.has<RigidBody>(e)) statics.push_back({tr.position, box.halfSize, reg.has<OneWay>(e)});
     });
 
     // Corps dynamiques (pour la résolution dynamique <-> dynamique ensuite).
@@ -39,6 +39,7 @@ inline void physicsStep(Registry& reg, float dt, Vec2 gravity) {
         // --- Déplacement horizontal puis résolution sur X ---
         tr.position.x += rb.velocity.x * dt;
         for (const Box& s : statics) {
+            if (s.oneWay) continue; // traversable horizontalement
             if (aabbOverlap(tr.position, box.halfSize, s.center, s.half)) {
                 const float dx = tr.position.x - s.center.x;
                 const float ox = (box.halfSize.x + s.half.x) - std::fabs(dx);
@@ -51,9 +52,17 @@ inline void physicsStep(Registry& reg, float dt, Vec2 gravity) {
         rb.onGround = false;
         tr.position.y += rb.velocity.y * dt;
         for (const Box& s : statics) {
-            if (aabbOverlap(tr.position, box.halfSize, s.center, s.half)) {
-                const float dy = tr.position.y - s.center.y;
-                const float oy = (box.halfSize.y + s.half.y) - std::fabs(dy);
+            if (!aabbOverlap(tr.position, box.halfSize, s.center, s.half)) continue;
+            const float dy = tr.position.y - s.center.y;
+            const float oy = (box.halfSize.y + s.half.y) - std::fabs(dy);
+            if (s.oneWay) {
+                // one-way : on ne se pose que par le dessus, en descendant
+                if (dy < 0.0f && rb.velocity.y >= 0.0f) {
+                    tr.position.y -= oy;
+                    rb.onGround = true;
+                    rb.velocity.y = 0.0f;
+                }
+            } else {
                 tr.position.y += (dy < 0.0f ? -oy : oy);
                 if (dy < 0.0f) rb.onGround = true; // posé sur le dessus d'un solide
                 rb.velocity.y = 0.0f;
