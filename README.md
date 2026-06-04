@@ -387,11 +387,15 @@ matière à contributions et à versions futures.
 
 ### 🖥️ Éditeur
 - [x] **Redimensionner** les entités avec des poignées (fait) ; pivoter (à venir)
-- [ ] **Grille & magnétisme** (snap), règles, alignement
+- [x] **Grille & magnétisme** (snap) — fait ; règles & guides d'alignement (à venir)
+- [x] **Plusieurs niveaux** (`niveauN.json`, enchaînement) — fait ; onglets de scènes (à venir)
 - [ ] **Undo / Redo**
 - [ ] **Copier / coller / dupliquer** des entités
 - [ ] **Multi-sélection** et édition groupée
-- [ ] **Onglets de scènes** + gestion de projet (plusieurs niveaux)
+- [ ] **Mode peinture de tuiles** (poser/effacer en glissant, comme un tilemap)
+- [ ] **Pivoter** les entités (gizmo de rotation)
+- [ ] **Verrouiller / masquer** des entités, dossiers dans la hiérarchie
+- [ ] **Renommer** les entités, recherche/filtre dans la hiérarchie
 - [ ] **Aperçu des animations** dans l'inspecteur
 - [ ] **Importer un asset par glisser-déposer** depuis l'explorateur Windows
 - [ ] **Console de logs** intégrée, profileur (FPS, nb d'entités, draw calls)
@@ -418,6 +422,49 @@ matière à contributions et à versions futures.
 - [ ] **Template de projet** (`mjv new mon-jeu`) pour démarrer en un clic
 - [ ] **Galerie d'exemples** et de jeux de la communauté
 - [ ] **Discord**, guide de contribution, bonnes premières issues
+
+### 🕹️ Contrôles & entrées
+- [ ] **Manettes** (gamepad) et vibrations
+- [ ] **Carte d'actions** reconfigurable (action « sauter » → touche/bouton)
+- [ ] **Écran tactile** (boutons virtuels pour mobile)
+- [ ] **Souris dans le jeu** (viser, cliquer des objets)
+- [ ] **Tampon de saut** (jump buffering) et **coyote time** pour un contrôle nerveux
+
+### 🤖 IA & comportements
+- [ ] **Comportements no-code** supplémentaires : poursuite, fuite, saut, tir
+- [ ] **Patrouille avancée** : demi-tour au bord du vide / contre un mur
+- [ ] **Champs de navigation** / pathfinding (A*) sur grille
+- [ ] **Vagues d'ennemis** et générateurs (spawners)
+- [ ] **Arbres de comportement** ou graphes d'états visuels
+
+### 🎬 Interface & menus (in-game)
+- [ ] **Système d'UI** : boutons, labels, barres de vie, ancrage à l'écran
+- [ ] **Menus** : titre, pause, options, game over (sans code)
+- [ ] **Dialogues** et boîtes de texte (cinématiques simples)
+- [ ] **Transitions** d'écran (fondu, volet) entre niveaux
+
+### 🗺️ Contenu & données
+- [ ] **Tilemap complet** + import **Tiled** (`.tmx`/`.tsx`)
+- [ ] **Format de scène binaire** (chargement plus rapide que JSON)
+- [ ] **Localisation** (textes multi-langues)
+- [ ] **Tables de données** (CSV) pour équilibrer le jeu
+- [ ] **Génération procédurale** de niveaux (option)
+
+### 🌐 Réseau & multijoueur
+- [ ] **Multijoueur local** (écran partagé, 2 joueurs)
+- [ ] **Multijoueur en ligne** (synchronisation d'état, lobby) — ambitieux
+- [ ] **Classements / succès** en ligne
+
+### ♿ Confort & accessibilité
+- [ ] **Mise à l'échelle de l'UI**, daltonisme, contrastes
+- [ ] **Remappage complet** des touches, vitesse de jeu réglable
+- [ ] **Sous-titres** pour les sons importants
+
+### 📦 Distribution & communauté
+- [ ] **Exporter un jeu autonome** (le moteur emballe la scène + assets en un exécutable)
+- [ ] **Marketplace d'assets / de comportements** communautaire
+- [ ] **Tutoriels vidéo** et documentation interactive
+- [ ] **Versionnage sémantique** + notes de version automatisées
 
 ## Assets
 
