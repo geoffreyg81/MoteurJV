@@ -40,7 +40,14 @@ namespace fs = std::filesystem;
 
 // --- Composants propres à l'éditeur -----------------------------------------
 struct SpriteAsset { std::string path; Vec2 size; };          // affiche une image
-struct Controllable { float speed = 300.0f; float jumpForce = 820.0f; }; // "joueur"
+struct Controllable {                                         // "joueur"
+    float speed = 300.0f;
+    float jumpForce = 820.0f;
+    int maxJumps = 1;        // 2 = double saut
+    // runtime :
+    float coyote = 0.0f, buffer = 0.0f;
+    int jumpsLeft = 0;
+};
 struct Patrol {                                               // ennemi va-et-vient
     float speed = 90.0f;
     float range = 140.0f;
@@ -329,16 +336,29 @@ private:
     }
 
     // ----------------------------------------------------------- systèmes (Play)
-    void controlSystem() {
+    void controlSystem(float dt) {
         if (m_won || m_lost) return; // partie terminée : on fige le joueur
-        if (ImGui::GetIO().WantCaptureKeyboard) return;
-        const int L = (Input::isDown(Key::Left)  || Input::isDown(Key::A) || Input::isDown(Key::Q)) ? 1 : 0;
-        const int R = (Input::isDown(Key::Right) || Input::isDown(Key::D)) ? 1 : 0;
-        const bool jump = Input::isPressed(Key::Space) || Input::isPressed(Key::Up) ||
-                          Input::isPressed(Key::W) || Input::isPressed(Key::Z);
-        m_reg.view<Controllable, RigidBody>([&](Entity, Controllable& ctrl, RigidBody& rb) {
-            rb.velocity.x = static_cast<float>(R - L) * ctrl.speed;
-            if (jump && rb.onGround) rb.velocity.y = -ctrl.jumpForce;
+        const bool kbd = !ImGui::GetIO().WantCaptureKeyboard;
+        const int L = (kbd && (Input::isDown(Key::Left)  || Input::isDown(Key::A) || Input::isDown(Key::Q))) ? 1 : 0;
+        const int R = (kbd && (Input::isDown(Key::Right) || Input::isDown(Key::D))) ? 1 : 0;
+        const bool jumpPressed = kbd && (Input::isPressed(Key::Space) || Input::isPressed(Key::Up) ||
+                                         Input::isPressed(Key::W) || Input::isPressed(Key::Z));
+        m_reg.view<Controllable, RigidBody>([&](Entity, Controllable& c, RigidBody& rb) {
+            rb.velocity.x = static_cast<float>(R - L) * c.speed;
+            // coyote time + recharge des sauts quand on est au sol
+            if (rb.onGround) { c.coyote = 0.10f; c.jumpsLeft = std::max(1, c.maxJumps); }
+            else c.coyote = std::max(0.0f, c.coyote - dt);
+            // jump buffering : on mémorise l'appui un court instant
+            c.buffer = jumpPressed ? 0.12f : std::max(0.0f, c.buffer - dt);
+            if (c.buffer > 0.0f) {
+                const bool fromGround = c.coyote > 0.0f;
+                if (fromGround || c.jumpsLeft > 0) {
+                    rb.velocity.y = -c.jumpForce;
+                    c.buffer = 0.0f;
+                    if (fromGround) { c.coyote = 0.0f; c.jumpsLeft = std::max(1, c.maxJumps) - 1; }
+                    else            { c.jumpsLeft -= 1; } // saut en l'air (double saut)
+                }
+            }
         });
     }
     // Fait avancer les sprites animés (marche si l'entité se déplace au sol).
@@ -401,7 +421,9 @@ private:
         if (m_invuln <= 0.0f) {
             m_reg.view<Patrol, Transform2D>([&](Entity e, Patrol&, Transform2D& t) {
                 const Vec2 h = halfExtents(e);
-                for (const P& p : players) if (aabbOverlap(p.c, p.h, t.position, h)) { hitPlayer(p.e); return; }
+                // petite marge : les corps se touchent (poussés) sans se chevaucher
+                for (const P& p : players)
+                    if (aabbOverlap(p.c, {p.h.x + 3.0f, p.h.y + 3.0f}, t.position, h)) { hitPlayer(p.e); return; }
             });
         }
         m_reg.view<Goal, Transform2D>([&](Entity e, Goal&, Transform2D& t) {
@@ -428,7 +450,7 @@ private:
                 m_timeLeft -= dt;
                 if (m_timeLeft <= 0.0f) { m_timeLeft = 0.0f; lose(); }
             }
-            controlSystem();
+            controlSystem(dt);
             patrolSystem(dt);
             physicsStep(m_reg, std::min(dt, 0.033f), {0.0f, kGravity});
             animationSystem(dt);
@@ -865,6 +887,7 @@ private:
             Controllable& cc = m_reg.get<Controllable>(m_selected);
             ImGui::DragFloat("vitesse", &cc.speed, 2.0f, 0.0f, 1000.0f);
             ImGui::DragFloat("force de saut", &cc.jumpForce, 5.0f, 0.0f, 2000.0f);
+            ImGui::DragInt("sauts max (2 = double)", &cc.maxJumps, 0.1f, 1, 5);
         }
         if (m_reg.has<Patrol>(m_selected) && ImGui::CollapsingHeader("Ennemi (patrouille)", ImGuiTreeNodeFlags_DefaultOpen)) {
             Patrol& p = m_reg.get<Patrol>(m_selected);
@@ -992,7 +1015,7 @@ private:
         if (m_reg.has<RectShape>(e))   { RectShape& r = m_reg.get<RectShape>(e); je["RectShape"] = {{"size", vecToJ(r.size)}, {"color", json::array({r.color.r, r.color.g, r.color.b})}}; }
         if (m_reg.has<AABB>(e))        je["AABB"] = {{"halfSize", vecToJ(m_reg.get<AABB>(e).halfSize)}};
         if (m_reg.has<RigidBody>(e))   je["RigidBody"] = {{"gravityScale", m_reg.get<RigidBody>(e).gravityScale}};
-        if (m_reg.has<Controllable>(e)){ Controllable& c = m_reg.get<Controllable>(e); je["Controllable"] = {{"speed", c.speed}, {"jumpForce", c.jumpForce}}; }
+        if (m_reg.has<Controllable>(e)){ Controllable& c = m_reg.get<Controllable>(e); je["Controllable"] = {{"speed", c.speed}, {"jumpForce", c.jumpForce}, {"maxJumps", c.maxJumps}}; }
         if (m_reg.has<Patrol>(e))      { Patrol& p = m_reg.get<Patrol>(e); je["Patrol"] = {{"speed", p.speed}, {"range", p.range}}; }
         if (m_reg.has<Collectible>(e)) je["Collectible"] = {{"points", m_reg.get<Collectible>(e).points}};
         if (m_reg.has<Goal>(e))        je["Goal"] = true;
@@ -1015,7 +1038,7 @@ private:
         if (je.contains("RectShape"))   { const json& j = je["RectShape"]; const json& c = j["color"]; m_reg.add<RectShape>(e, RectShape{jToVec(j["size"]), mjv::Color{c[0].get<std::uint8_t>(), c[1].get<std::uint8_t>(), c[2].get<std::uint8_t>(), 255}}); }
         if (je.contains("AABB"))        m_reg.add<AABB>(e, AABB{jToVec(je["AABB"]["halfSize"])});
         if (je.contains("RigidBody"))   { RigidBody rb; rb.gravityScale = je["RigidBody"]["gravityScale"].get<float>(); m_reg.add<RigidBody>(e, rb); }
-        if (je.contains("Controllable")){ const json& j = je["Controllable"]; m_reg.add<Controllable>(e, Controllable{j["speed"].get<float>(), j["jumpForce"].get<float>()}); }
+        if (je.contains("Controllable")){ const json& j = je["Controllable"]; Controllable c{j["speed"].get<float>(), j["jumpForce"].get<float>()}; c.maxJumps = j.value("maxJumps", 1); m_reg.add<Controllable>(e, c); }
         if (je.contains("Patrol"))      { const json& j = je["Patrol"]; Patrol p; p.speed = j["speed"].get<float>(); p.range = j["range"].get<float>(); m_reg.add<Patrol>(e, p); }
         if (je.contains("Collectible")) m_reg.add<Collectible>(e, Collectible{je["Collectible"]["points"].get<int>()});
         if (je.contains("Goal"))        m_reg.add<Goal>(e, Goal{});

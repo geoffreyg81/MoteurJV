@@ -29,6 +29,10 @@ inline void physicsStep(Registry& reg, float dt, Vec2 gravity) {
         if (!reg.has<RigidBody>(e)) statics.push_back({tr.position, box.halfSize});
     });
 
+    // Corps dynamiques (pour la résolution dynamique <-> dynamique ensuite).
+    struct Dyn { Transform2D* tr; Vec2 half; RigidBody* rb; };
+    std::vector<Dyn> dyns;
+
     reg.view<RigidBody, AABB, Transform2D>([&](Entity, RigidBody& rb, AABB& box, Transform2D& tr) {
         rb.velocity += gravity * (rb.gravityScale * dt);
 
@@ -55,7 +59,37 @@ inline void physicsStep(Registry& reg, float dt, Vec2 gravity) {
                 rb.velocity.y = 0.0f;
             }
         }
+        dyns.push_back({&tr, box.halfSize, &rb});
     });
+
+    // --- Résolution dynamique <-> dynamique (les corps se poussent) ----------
+    for (std::size_t i = 0; i < dyns.size(); ++i) {
+        for (std::size_t j = i + 1; j < dyns.size(); ++j) {
+            Dyn& a = dyns[i];
+            Dyn& b = dyns[j];
+            if (!aabbOverlap(a.tr->position, a.half, b.tr->position, b.half)) continue;
+            const float dx = b.tr->position.x - a.tr->position.x;
+            const float px = (a.half.x + b.half.x) - std::fabs(dx);
+            const float dy = b.tr->position.y - a.tr->position.y;
+            const float py = (a.half.y + b.half.y) - std::fabs(dy);
+            if (px <= 0.0f || py <= 0.0f) continue;
+            if (px < py) {
+                const float s = (dx < 0.0f) ? 1.0f : -1.0f; // pousse a, oppose pour b
+                a.tr->position.x += s * px * 0.5f;
+                b.tr->position.x -= s * px * 0.5f;
+                a.rb->velocity.x = 0.0f;
+                b.rb->velocity.x = 0.0f;
+            } else {
+                const float s = (dy < 0.0f) ? 1.0f : -1.0f;
+                a.tr->position.y += s * py * 0.5f;
+                b.tr->position.y -= s * py * 0.5f;
+                // celui du dessus est "au sol" (posé sur l'autre)
+                if (dy > 0.0f) a.rb->onGround = true; else b.rb->onGround = true;
+                a.rb->velocity.y = 0.0f;
+                b.rb->velocity.y = 0.0f;
+            }
+        }
+    }
 }
 
 } // namespace mjv

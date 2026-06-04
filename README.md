@@ -364,7 +364,7 @@ matière à contributions et à versions futures.
 - [ ] **Flip/teinte/opacité** par sprite, modes de fusion (additif…)
 
 ### 🧮 Physique & collisions
-- [ ] **Collision dynamique ↔ dynamique** (les corps se poussent entre eux)
+- [x] **Collision dynamique ↔ dynamique** (les corps se poussent / s'empilent) — fait
 - [ ] **Pentes et plateformes traversables** (one-way platforms)
 - [ ] **Triggers / zones** (détecter une entrée sans bloquer)
 - [ ] **Raycast 2D** (tir, ligne de vue, capteurs)
@@ -429,7 +429,7 @@ matière à contributions et à versions futures.
 - [ ] **Carte d'actions** reconfigurable (action « sauter » → touche/bouton)
 - [ ] **Écran tactile** (boutons virtuels pour mobile)
 - [ ] **Souris dans le jeu** (viser, cliquer des objets)
-- [ ] **Tampon de saut** (jump buffering) et **coyote time** pour un contrôle nerveux
+- [x] **Tampon de saut** (jump buffering), **coyote time** et **double saut** — fait
 
 ### 🤖 IA & comportements
 - [ ] **Comportements no-code** supplémentaires : poursuite, fuite, saut, tir
