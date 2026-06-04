@@ -158,4 +158,15 @@ def gen_crate():
     write_png(b, os.path.join(assets, "crate.png"))
 
 
-gen_player(); gen_enemy(); gen_coin(); gen_flag(); gen_crate()
+def gen_tile():
+    b = make_buf(64, 64)
+    OUT, DIRT = (60, 40, 20, 255), (155, 105, 65, 255)
+    GRASS, GDARK = (85, 185, 95, 255), (60, 150, 75, 255)
+    rect(b, 0, 0, 63, 63, OUT)
+    rect(b, 1, 1, 62, 62, DIRT)
+    rect(b, 1, 1, 62, 13, GRASS)     # herbe sur le dessus
+    rect(b, 1, 12, 62, 16, GDARK)
+    write_png(b, os.path.join(assets, "tile.png"))
+
+
+gen_player(); gen_enemy(); gen_coin(); gen_flag(); gen_crate(); gen_tile()

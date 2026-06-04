@@ -101,6 +101,14 @@ private:
     Vec2 m_vpPos, m_vpSize;
     bool m_vpHovered = false;
 
+    // Navigation et édition de la scène.
+    float m_zoom = 1.0f;
+    Vec2 m_camTarget{kWorldW * 0.5f, kWorldH * 0.5f};
+    bool m_snap = false;
+    float m_grid = 32.0f;
+    int m_resizeHandle = -1; // coin en cours de redimensionnement (-1 = aucun)
+    Vec2 m_fixedCorner;
+
     void onStart() override {
         rlImGuiSetup(true);
         ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
@@ -176,6 +184,12 @@ private:
         m_reg.add<AABB>(e, AABB{m_reg.get<SpriteAsset>(e).size * 0.5f});
         m_reg.add<RigidBody>(e, RigidBody{});
         m_selected = e; setStatus("Caisse creee"); return e;
+    }
+    // Tuile de sol : solide statique. À stamper en grille pour bâtir des plateformes.
+    Entity spawnTile(Vec2 pos) {
+        Entity e = makeSpriteEntity("tile.png", pos);
+        m_reg.add<AABB>(e, AABB{m_reg.get<SpriteAsset>(e).size * 0.5f});
+        m_selected = e; setStatus("Tuile creee"); return e;
     }
     Entity spawnPlayer(Vec2 pos) {
         Entity e = makeSpriteEntity("player.png", pos);
@@ -393,10 +407,29 @@ private:
         return lives;
     }
 
+    // Écran -> coordonnées monde, en tenant compte de la caméra d'édition.
     Vec2 screenToWorld(Vec2 s) const {
         if (m_vpSize.x <= 0.0f || m_vpSize.y <= 0.0f) return s;
-        return {(s.x - m_vpPos.x) * (kWorldW / m_vpSize.x),
-                (s.y - m_vpPos.y) * (kWorldH / m_vpSize.y)};
+        const float tx = (s.x - m_vpPos.x) * (kWorldW / m_vpSize.x);
+        const float ty = (s.y - m_vpPos.y) * (kWorldH / m_vpSize.y);
+        return {(tx - kWorldW * 0.5f) / m_zoom + m_camTarget.x,
+                (ty - kWorldH * 0.5f) / m_zoom + m_camTarget.y};
+    }
+    Vec2 snap(Vec2 p) const {
+        if (!m_snap) return p;
+        return {std::round(p.x / m_grid) * m_grid, std::round(p.y / m_grid) * m_grid};
+    }
+    // Index du coin de redimensionnement sous le point (ou -1).
+    int handleAt(Vec2 w) {
+        if (!m_reg.valid(m_selected) ||
+            !(m_reg.has<RectShape>(m_selected) || m_reg.has<SpriteAsset>(m_selected))) return -1;
+        const Vec2 c = m_reg.get<Transform2D>(m_selected).position;
+        const Vec2 h = halfExtents(m_selected);
+        const Vec2 cs[4] = {{c.x - h.x, c.y - h.y}, {c.x + h.x, c.y - h.y}, {c.x + h.x, c.y + h.y}, {c.x - h.x, c.y + h.y}};
+        const float thr = 12.0f / m_zoom;
+        for (int i = 0; i < 4; ++i)
+            if (std::abs(w.x - cs[i].x) <= thr && std::abs(w.y - cs[i].y) <= thr) return i;
+        return -1;
     }
     Entity pickEntity(Vec2 p) {
         Entity hit = NullEntity;
@@ -407,17 +440,48 @@ private:
         return hit;
     }
     void handleViewportInteraction() {
-        if (!m_vpHovered) { if (Input::mouseReleased(Mouse::Left)) m_dragging = false; return; }
+        if (m_vpHovered) {
+            // Zoom à la molette.
+            const float wheel = GetMouseWheelMove();
+            if (wheel != 0.0f) { m_zoom *= (wheel > 0 ? 1.1f : 0.9f); m_zoom = std::min(3.0f, std::max(0.25f, m_zoom)); }
+            // Pan au clic droit.
+            if (Input::mouseDown(Mouse::Right)) {
+                const Vec2 d = Input::mouseDelta();
+                m_camTarget.x -= d.x * (kWorldW / m_vpSize.x) / m_zoom;
+                m_camTarget.y -= d.y * (kWorldH / m_vpSize.y) / m_zoom;
+            }
+        }
+        if (!m_vpHovered) { if (Input::mouseReleased(Mouse::Left)) { m_dragging = false; m_resizeHandle = -1; } return; }
+
         const Vec2 w = screenToWorld(Input::mousePosition());
         if (Input::mousePressed(Mouse::Left)) {
-            const Entity hit = pickEntity(w);
-            if (hit != NullEntity) { m_selected = hit; m_dragging = true; m_dragOffset = m_reg.get<Transform2D>(hit).position - w; }
+            const int handle = handleAt(w);
+            if (handle >= 0) {
+                m_resizeHandle = handle;
+                const Vec2 c = m_reg.get<Transform2D>(m_selected).position;
+                const Vec2 h = halfExtents(m_selected);
+                const Vec2 cs[4] = {{c.x - h.x, c.y - h.y}, {c.x + h.x, c.y - h.y}, {c.x + h.x, c.y + h.y}, {c.x - h.x, c.y + h.y}};
+                m_fixedCorner = cs[(handle + 2) % 4];
+            } else {
+                const Entity hit = pickEntity(w);
+                if (hit != NullEntity) { m_selected = hit; m_dragging = true; m_dragOffset = m_reg.get<Transform2D>(hit).position - w; }
+            }
         }
-        if (m_dragging && Input::mouseDown(Mouse::Left) && m_reg.valid(m_selected) && m_reg.has<Transform2D>(m_selected)) {
-            m_reg.get<Transform2D>(m_selected).position = w + m_dragOffset;
+
+        if (m_resizeHandle >= 0 && Input::mouseDown(Mouse::Left) && m_reg.valid(m_selected)) {
+            const Vec2 nc = snap(w);
+            const Vec2 center = (nc + m_fixedCorner) * 0.5f;
+            const Vec2 half{std::max(8.0f, std::abs(nc.x - m_fixedCorner.x) * 0.5f),
+                            std::max(8.0f, std::abs(nc.y - m_fixedCorner.y) * 0.5f)};
+            m_reg.get<Transform2D>(m_selected).position = center;
+            if (m_reg.has<RectShape>(m_selected))   m_reg.get<RectShape>(m_selected).size = half * 2.0f;
+            if (m_reg.has<SpriteAsset>(m_selected))  m_reg.get<SpriteAsset>(m_selected).size = half * 2.0f;
+            if (m_reg.has<AABB>(m_selected))         m_reg.get<AABB>(m_selected).halfSize = half;
+        } else if (m_dragging && Input::mouseDown(Mouse::Left) && m_reg.valid(m_selected) && m_reg.has<Transform2D>(m_selected)) {
+            m_reg.get<Transform2D>(m_selected).position = snap(w + m_dragOffset);
             if (m_reg.has<RigidBody>(m_selected)) m_reg.get<RigidBody>(m_selected).velocity = {0.0f, 0.0f};
         }
-        if (Input::mouseReleased(Mouse::Left)) m_dragging = false;
+        if (Input::mouseReleased(Mouse::Left)) { m_dragging = false; m_resizeHandle = -1; }
     }
 
     void renderSceneToTexture() {
@@ -425,13 +489,15 @@ private:
         Graphics::clear(Colors::SkyBlue);
 
         ::Camera2D cam{};
-        cam.zoom = 1.0f;
-        bool useCam = false;
+        cam.offset = {kWorldW * 0.5f, kWorldH * 0.5f};
+        cam.zoom = m_zoom;
+        cam.target = {m_camTarget.x, m_camTarget.y};
         if (m_playing) {
             Vec2 p;
-            if (firstPlayer(p)) { cam.target = {p.x, p.y}; cam.offset = {kWorldW * 0.5f, kWorldH * 0.5f}; useCam = true; }
+            if (firstPlayer(p)) { cam.target = {p.x, p.y}; cam.zoom = 1.0f; }
         }
-        if (useCam) BeginMode2D(cam);
+        BeginMode2D(cam);
+        if (!m_playing && m_snap) drawGrid();
 
         m_reg.view<Transform2D, RectShape>([&](Entity, Transform2D& tr, RectShape& s) {
             Graphics::drawRectangleCentered(tr.position, s.size, s.color, tr.rotation);
@@ -447,10 +513,33 @@ private:
             const Vec2 h = halfExtents(m_selected);
             Graphics::drawRectangleOutlineCentered(m_reg.get<Transform2D>(m_selected).position,
                                                    h * 2.0f + Vec2{8, 8}, Colors::Yellow, 2.5f);
+            drawHandles(m_selected);
         }
-        if (useCam) EndMode2D();
+        EndMode2D();
         if (m_playing) drawHud();
         EndTextureMode();
+    }
+
+    void drawGrid() {
+        const float left = m_camTarget.x - (kWorldW * 0.5f) / m_zoom;
+        const float right = m_camTarget.x + (kWorldW * 0.5f) / m_zoom;
+        const float top = m_camTarget.y - (kWorldH * 0.5f) / m_zoom;
+        const float bottom = m_camTarget.y + (kWorldH * 0.5f) / m_zoom;
+        const ::Color col{255, 255, 255, 28};
+        const int x0 = static_cast<int>(std::floor(left / m_grid)), x1 = static_cast<int>(std::ceil(right / m_grid));
+        const int y0 = static_cast<int>(std::floor(top / m_grid)), y1 = static_cast<int>(std::ceil(bottom / m_grid));
+        if (x1 - x0 < 500) for (int i = x0; i <= x1; ++i) DrawLine(static_cast<int>(i * m_grid), static_cast<int>(top), static_cast<int>(i * m_grid), static_cast<int>(bottom), col);
+        if (y1 - y0 < 500) for (int i = y0; i <= y1; ++i) DrawLine(static_cast<int>(left), static_cast<int>(i * m_grid), static_cast<int>(right), static_cast<int>(i * m_grid), col);
+    }
+
+    void drawHandles(Entity e) {
+        if (!(m_reg.has<RectShape>(e) || m_reg.has<SpriteAsset>(e))) return;
+        const Vec2 c = m_reg.get<Transform2D>(e).position;
+        const Vec2 h = halfExtents(e);
+        const float s = 9.0f / m_zoom;
+        const Vec2 cs[4] = {{c.x - h.x, c.y - h.y}, {c.x + h.x, c.y - h.y}, {c.x + h.x, c.y + h.y}, {c.x - h.x, c.y + h.y}};
+        for (const Vec2& p : cs)
+            DrawRectangle(static_cast<int>(p.x - s), static_cast<int>(p.y - s), static_cast<int>(2 * s), static_cast<int>(2 * s), ::Color{60, 180, 255, 255});
     }
 
     // Texte centré horizontalement (police par défaut : ~0.5*taille par caractère).
@@ -535,6 +624,7 @@ private:
             if (ImGui::BeginMenu("Creer")) {
                 if (ImGui::MenuItem("Joueur"))     spawnPlayer({250.0f, 200.0f});
                 if (ImGui::MenuItem("Plateforme")) spawnPlatform({400.0f, 350.0f});
+                if (ImGui::MenuItem("Tuile"))      spawnTile(snap(m_camTarget));
                 if (ImGui::MenuItem("Caisse"))     spawnCrate({450.0f, 150.0f});
                 if (ImGui::MenuItem("Ennemi"))     spawnEnemy({500.0f, 200.0f});
                 if (ImGui::MenuItem("Piece"))      spawnCoin({550.0f, 300.0f});
@@ -547,6 +637,17 @@ private:
                 if (ImGui::MenuItem("Supprimer la selection", "Suppr", false, m_reg.valid(m_selected))) {
                     m_reg.destroy(m_selected); m_selected = NullEntity;
                 }
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Vue")) {
+                ImGui::Checkbox("Grille magnetique", &m_snap);
+                ImGui::SetNextItemWidth(120);
+                ImGui::DragFloat("pas de grille", &m_grid, 1.0f, 4.0f, 256.0f, "%.0f");
+                ImGui::Separator();
+                if (ImGui::MenuItem("Recentrer la vue")) { m_camTarget = {kWorldW * 0.5f, kWorldH * 0.5f}; m_zoom = 1.0f; }
+                ImGui::TextDisabled("Clic droit : deplacer la vue");
+                ImGui::TextDisabled("Molette : zoom");
+                ImGui::TextDisabled("Poignees bleues : redimensionner");
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Niveau")) {
@@ -649,8 +750,20 @@ private:
         }
         if (m_reg.has<SpriteAsset>(m_selected) && ImGui::CollapsingHeader("Image", ImGuiTreeNodeFlags_DefaultOpen)) {
             SpriteAsset& sp = m_reg.get<SpriteAsset>(m_selected);
-            ImGui::TextWrapped("%s", sp.path.c_str());
             ImGui::DragFloat2("taille", &sp.size.x, 1.0f, 1.0f, 4000.0f);
+            ImGui::TextDisabled("Changer l'image (skin) :");
+            int n = 0;
+            for (const std::string& img : imageAssets()) {
+                ::Texture2D& t = thumbnail(img);
+                ImGui::PushID(n);
+                if (rlImGuiImageButtonSize("skin", &t, ::Vector2{38, 38})) {
+                    sp.path = img;
+                    sp.size = {static_cast<float>(t.width), static_cast<float>(t.height)};
+                }
+                ImGui::PopID();
+                if (++n % 5 != 0) ImGui::SameLine();
+            }
+            ImGui::NewLine();
         }
         if (m_reg.has<RigidBody>(m_selected) && ImGui::CollapsingHeader("Physique (RigidBody)", ImGuiTreeNodeFlags_DefaultOpen)) {
             RigidBody& rb = m_reg.get<RigidBody>(m_selected);
@@ -699,6 +812,18 @@ private:
         return m_thumbs.emplace(path, LoadTexture(path.c_str())).first->second;
     }
 
+    // Toutes les images du dossier d'assets (récursif → supporte les packs/sous-dossiers).
+    std::vector<std::string> imageAssets() {
+        std::vector<std::string> v;
+        std::error_code ec;
+        for (const fs::directory_entry& f : fs::recursive_directory_iterator(MJV_ASSET_DIR, ec)) {
+            if (!f.is_regular_file()) continue;
+            const std::string ext = f.path().extension().string();
+            if (ext == ".png" || ext == ".jpg") v.push_back(f.path().string());
+        }
+        return v;
+    }
+
     void drawAssets() {
         ImGui::Begin("Assets");
         ImGui::TextDisabled("Glisse une image dans la scene, ou clique un son pour l'ecouter");
@@ -709,11 +834,12 @@ private:
         const float cell = 92.0f;
         const int perRow = std::max(1, static_cast<int>(ImGui::GetContentRegionAvail().x / cell));
         int i = 0;
-        for (const fs::directory_entry& f : fs::directory_iterator(dir, ec)) {
+        for (const fs::directory_entry& f : fs::recursive_directory_iterator(dir, ec)) {
             if (!f.is_regular_file()) continue;
             const std::string path = f.path().string();
             const std::string name = f.path().filename().string();
             const std::string ext = f.path().extension().string();
+            ImGui::PushID(i);
             ImGui::BeginGroup();
             if (ext == ".png" || ext == ".jpg") {
                 ::Texture2D& t = thumbnail(path);
@@ -730,6 +856,7 @@ private:
             }
             ImGui::TextWrapped("%s", name.c_str());
             ImGui::EndGroup();
+            ImGui::PopID();
             if (++i % perRow != 0) ImGui::SameLine();
         }
         ImGui::End();

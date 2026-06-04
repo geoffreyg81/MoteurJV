@@ -175,8 +175,18 @@ atteignant l'objectif, le **niveau suivant se charge** (Entrée), le score se cu
 Le menu **Niveau** permet de sauvegarder/charger n'importe quel numéro et de régler
 le temps limite. Deux niveaux de démo sont créés au premier lancement.
 
+**Édition riche du niveau :**
+- **Navigation** : molette = zoom, clic droit = déplacer la vue (parcourir tout le niveau)
+- **Grille magnétique** (menu Vue) : placement et redimensionnement alignés sur la grille
+- **Poignées de redimensionnement** : 4 coins bleus sur l'entité sélectionnée, à tirer à la souris
+- **Tuiles** (Créer → Tuile) : blocs de sol à stamper pour bâtir des plateformes
+- **Changer le skin** : dans l'Inspecteur, clique une autre image pour remplacer le sprite d'une entité
+- **Packs d'assets** : dépose tes PNG (ex. [Kenney](https://kenney.nl/assets), même en sous-dossier)
+  dans le dossier d'assets → ils apparaissent automatiquement dans le panneau Assets et les skins
+
 Détails techniques : thème sombre custom, **layout ancré (DockSpace)** 3 zones, le
-jeu rendu dans une **RenderTexture** affichée dans le Viewport, caméra 2D de suivi.
+jeu rendu dans une **RenderTexture** affichée dans le Viewport, caméra 2D (pan/zoom
+en édition, suivi du joueur en jeu).
 
 - **Hiérarchie** (gauche) : liste toutes les entités du `Registry`, cliquables
 - **Inspecteur** (droite) : édite **en temps réel** les composants de l'entité
