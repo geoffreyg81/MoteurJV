@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -163,6 +164,17 @@ private:
     bool m_rotating = false;
     char m_hierFilter[48] = {0};
     bool m_parallax = true;
+
+    // --- Mode du projet (choisi au lancement) ---
+    enum Mode { ModeNone, Mode2D, Mode3D };
+    int m_mode = ModeNone;
+    // Scène 3D (mode 3D) : liste d'objets simples + caméra orbitale.
+    struct Obj3D { std::string name; int kind = 0; Vec3 pos{0, 0.5f, 0}; float scale = 1.0f; float yaw = 0.0f; mjv::Color color{230, 80, 80, 255}; std::string model; };
+    std::vector<Obj3D> m_objs3d;
+    int m_sel3d = -1;
+    float m_yaw3d = 0.7f, m_pitch3d = 0.55f, m_dist3d = 18.0f;
+    Vec3 m_pivot3d{0.0f, 1.0f, 0.0f};
+    std::unordered_map<std::string, mjv::Model> m_models3d;
     std::vector<json> m_undo, m_redo;
     json m_clipboard;
     bool m_hasClipboard = false;
@@ -697,6 +709,8 @@ private:
     // ----------------------------------------------------------------- update
     void onUpdate(float dt) override {
         if (m_statusTimer > 0.0f) m_statusTimer -= dt;
+        if (m_mode == ModeNone) return;
+        if (m_mode == Mode3D) { update3D(dt); render3DScene(); return; }
         if (!m_playing) { handleShortcuts(); handleViewportInteraction(); }
 
         if (m_playing) {
@@ -1060,12 +1074,20 @@ private:
     void onRender() override {
         rlImGuiBegin();
         drawMenuBar();
+        if (m_mode == ModeNone) { drawStartup(); rlImGuiEnd(); return; }
         setupDockspace();
-        drawHierarchy();
-        drawInspector();
-        drawViewport();
-        drawAssets();
-        drawOptions();
+        if (m_mode == Mode3D) {
+            draw3DHierarchy();
+            draw3DInspector();
+            drawViewport();
+            draw3DPalette();
+        } else {
+            drawHierarchy();
+            drawInspector();
+            drawViewport();
+            drawAssets();
+            drawOptions();
+        }
         rlImGuiEnd();
     }
 
@@ -1089,7 +1111,181 @@ private:
         }
     }
 
+    // ============================ MODE 3D ============================
+    void drawStartup() {
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(480, 300));
+        ImGui::Begin("Bienvenue dans MoteurJV", nullptr,
+                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking);
+        ImGui::TextWrapped("Quel type de projet veux-tu creer ?");
+        ImGui::Dummy(ImVec2(0, 16));
+        if (ImGui::Button("Jeu 2D", ImVec2(200, 90))) m_mode = Mode2D;
+        ImGui::SameLine();
+        if (ImGui::Button("Jeu 3D", ImVec2(200, 90))) { m_mode = Mode3D; init3DDefault(); }
+        ImGui::Dummy(ImVec2(0, 12));
+        ImGui::TextDisabled("2D : platformer, sprites, IA, editeur complet");
+        ImGui::TextDisabled("3D : scene 3D, modeles Kenney, eclairage");
+        ImGui::End();
+    }
+    void init3DDefault() {
+        m_objs3d.clear(); m_sel3d = -1;
+        Obj3D ground; ground.name = "Bloc herbe"; ground.kind = 2; ground.model = "block-grass.glb"; ground.pos = {0, 0, 0};
+        m_objs3d.push_back(ground);
+        Obj3D cube; cube.name = "Cube"; cube.kind = 0; cube.pos = {2.5f, 1.0f, 0}; cube.color = Colors::Blue;
+        m_objs3d.push_back(cube);
+    }
+    mjv::Model& model3d(const std::string& name) {
+        auto it = m_models3d.find(name);
+        if (it != m_models3d.end()) return it->second;
+        mjv::Model m;
+        m.load(std::string(MJV_MODEL_DIR) + "/" + name);
+        return m_models3d.emplace(name, std::move(m)).first->second;
+    }
+    void add3D(int kind, const char* model, const char* name) {
+        Obj3D o; o.kind = kind; o.model = model ? model : ""; o.name = name;
+        o.pos = {m_pivot3d.x, kind == 2 ? 0.0f : 1.0f, m_pivot3d.z};
+        m_objs3d.push_back(o); m_sel3d = static_cast<int>(m_objs3d.size()) - 1;
+        setStatus(std::string(name) + " ajoute");
+    }
+    void update3D(float dt) {
+        (void)dt;
+        if (!m_vpHovered) return;
+        if (Input::mouseDown(Mouse::Right)) {
+            const Vec2 d = Input::mouseDelta();
+            m_yaw3d -= d.x * 0.005f;
+            m_pitch3d = std::min(1.45f, std::max(0.15f, m_pitch3d + d.y * 0.005f));
+        }
+        m_dist3d = std::min(60.0f, std::max(4.0f, m_dist3d - Input::mouseWheel() * 1.5f));
+    }
+    void render3DScene() {
+        BeginTextureMode(m_target);
+        Graphics::clear(Colors::SkyBlue);
+        mjv::Camera3D cam;
+        cam.target = m_pivot3d;
+        cam.position = m_pivot3d + Vec3{std::cos(m_pitch3d) * std::sin(m_yaw3d), std::sin(m_pitch3d), std::cos(m_pitch3d) * std::cos(m_yaw3d)} * m_dist3d;
+        Graphics3D::begin(cam);
+        Graphics3D::drawPlane({0, 0, 0}, 40, 40, mjv::Color{90, 150, 95, 255});
+        Graphics3D::drawGrid(40, 1.0f);
+        for (int i = 0; i < static_cast<int>(m_objs3d.size()); ++i) {
+            const Obj3D& o = m_objs3d[i];
+            if (o.kind == 0) Graphics3D::drawCube(o.pos, {o.scale, o.scale, o.scale}, o.color);
+            else if (o.kind == 1) Graphics3D::drawSphere(o.pos, o.scale * 0.5f, o.color);
+            else { mjv::Model& m = model3d(o.model); if (m.valid()) m.draw(o.pos, o.scale, o.yaw); else Graphics3D::drawCube(o.pos, {o.scale, o.scale, o.scale}, o.color); }
+            if (i == m_sel3d) Graphics3D::drawCubeWires(o.pos, {o.scale + 0.2f, o.scale + 0.2f, o.scale + 0.2f}, Colors::Yellow);
+        }
+        Graphics3D::end();
+        Graphics::drawText("Mode 3D - clic droit: tourner la camera, molette: zoom", {16, 16}, 20, Colors::White);
+        EndTextureMode();
+    }
+    void draw3DHierarchy() {
+        ImGui::Begin("Hierarchie");
+        ImGui::TextDisabled("%d objets 3D", static_cast<int>(m_objs3d.size()));
+        ImGui::Separator();
+        for (int i = 0; i < static_cast<int>(m_objs3d.size()); ++i) {
+            const std::string label = m_objs3d[i].name + "##" + std::to_string(i);
+            if (ImGui::Selectable(label.c_str(), i == m_sel3d)) m_sel3d = i;
+        }
+        ImGui::End();
+    }
+    void draw3DInspector() {
+        ImGui::Begin("Inspecteur");
+        if (m_sel3d < 0 || m_sel3d >= static_cast<int>(m_objs3d.size())) {
+            ImGui::TextDisabled("Aucun objet selectionne.");
+            ImGui::TextDisabled("Menu 'Creer' pour ajouter.");
+            ImGui::End(); return;
+        }
+        Obj3D& o = m_objs3d[m_sel3d];
+        char nb[64]; std::snprintf(nb, sizeof(nb), "%s", o.name.c_str());
+        if (ImGui::InputText("nom", nb, sizeof(nb))) o.name = nb;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Suppr.")) { m_objs3d.erase(m_objs3d.begin() + m_sel3d); m_sel3d = -1; ImGui::End(); return; }
+        ImGui::Separator();
+        ImGui::DragFloat3("position", &o.pos.x, 0.1f);
+        ImGui::DragFloat("echelle", &o.scale, 0.05f, 0.05f, 50.0f);
+        ImGui::DragFloat("rotation", &o.yaw, 1.0f);
+        if (o.kind < 2) {
+            float col[3] = {o.color.r / 255.0f, o.color.g / 255.0f, o.color.b / 255.0f};
+            if (ImGui::ColorEdit3("couleur", col)) { o.color.r = (std::uint8_t)(col[0] * 255); o.color.g = (std::uint8_t)(col[1] * 255); o.color.b = (std::uint8_t)(col[2] * 255); }
+        } else {
+            ImGui::TextDisabled("Modele : %s", o.model.c_str());
+        }
+        ImGui::End();
+    }
+    void draw3DPalette() {
+        ImGui::Begin("Assets");
+        ImGui::TextWrapped("Ajoute des objets (menu Creer ou ici) :");
+        ImGui::Separator();
+        if (ImGui::Button("Cube")) add3D(0, "", "Cube");
+        ImGui::SameLine();
+        if (ImGui::Button("Sphere")) add3D(1, "", "Sphere");
+        const char* models[6] = {"block-grass.glb", "tree.glb", "coin-gold.glb", "flag.glb", "character-oobi.glb", "barrel.glb"};
+        const char* labels[6] = {"Bloc herbe", "Arbre", "Piece", "Drapeau", "Personnage", "Tonneau"};
+        for (int i = 0; i < 6; ++i) { if (ImGui::Button(labels[i])) add3D(2, models[i], labels[i]); if (i % 3 != 2) ImGui::SameLine(); }
+        ImGui::NewLine();
+        ImGui::TextDisabled("(si vides : lance tools/fetch_kenney3d.sh)");
+        ImGui::End();
+    }
+    void drawMenuBar3D() {
+        if (ImGui::BeginMainMenuBar()) {
+            if (ImGui::BeginMenu("Fichier")) {
+                if (ImGui::MenuItem("Nouveau")) init3DDefault();
+                if (ImGui::MenuItem("Sauvegarder")) save3D();
+                if (ImGui::MenuItem("Charger")) load3D();
+                ImGui::Separator();
+                if (ImGui::MenuItem("Quitter")) std::exit(0);
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Creer")) {
+                if (ImGui::MenuItem("Cube")) add3D(0, "", "Cube");
+                if (ImGui::MenuItem("Sphere")) add3D(1, "", "Sphere");
+                ImGui::Separator();
+                const char* models[6] = {"block-grass.glb", "tree.glb", "coin-gold.glb", "flag.glb", "character-oobi.glb", "barrel.glb"};
+                const char* labels[6] = {"Bloc herbe", "Arbre", "Piece", "Drapeau", "Personnage", "Tonneau"};
+                for (int i = 0; i < 6; ++i) if (ImGui::MenuItem(labels[i])) add3D(2, models[i], labels[i]);
+                ImGui::EndMenu();
+            }
+            ImGui::Separator();
+            ImGui::TextDisabled("Mode 3D");
+            if (m_statusTimer > 0.0f) { ImGui::SameLine(); ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.6f, 1.0f), "%s", m_status.c_str()); }
+            ImGui::SameLine(ImGui::GetWindowWidth() - 90.0f);
+            ImGui::Text("%.0f FPS", ImGui::GetIO().Framerate);
+            ImGui::EndMainMenuBar();
+        }
+    }
+    void save3D() {
+        json doc; doc["objs"] = json::array();
+        for (const Obj3D& o : m_objs3d)
+            doc["objs"].push_back({{"name", o.name}, {"kind", o.kind}, {"pos", {o.pos.x, o.pos.y, o.pos.z}}, {"scale", o.scale}, {"yaw", o.yaw}, {"color", {o.color.r, o.color.g, o.color.b}}, {"model", o.model}});
+        std::ofstream f(std::string(MJV_EDITOR_DIR) + "/scene3d.json");
+        if (f) { f << doc.dump(2); setStatus("Scene 3D sauvegardee"); } else setStatus("Echec sauvegarde");
+    }
+    void load3D() {
+        std::ifstream f(std::string(MJV_EDITOR_DIR) + "/scene3d.json");
+        if (!f) { setStatus("Aucune scene 3D"); return; }
+        json doc; try { f >> doc; } catch (...) { setStatus("scene3d.json invalide"); return; }
+        m_objs3d.clear(); m_sel3d = -1;
+        for (const json& j : doc["objs"]) {
+            Obj3D o; o.name = j["name"].get<std::string>(); o.kind = j["kind"].get<int>();
+            const json& p = j["pos"]; o.pos = {p[0].get<float>(), p[1].get<float>(), p[2].get<float>()};
+            o.scale = j["scale"].get<float>(); o.yaw = j["yaw"].get<float>();
+            const json& c = j["color"]; o.color = mjv::Color{(std::uint8_t)c[0].get<int>(), (std::uint8_t)c[1].get<int>(), (std::uint8_t)c[2].get<int>(), 255};
+            o.model = j["model"].get<std::string>();
+            m_objs3d.push_back(o);
+        }
+        setStatus("Scene 3D chargee");
+    }
+
     void drawMenuBar() {
+        if (m_mode == ModeNone) {
+            if (ImGui::BeginMainMenuBar()) { ImGui::TextDisabled("MoteurJV - choisis le type de projet"); ImGui::EndMainMenuBar(); }
+            return;
+        }
+        if (m_mode == Mode3D) { drawMenuBar3D(); return; }
+        drawMenuBar2D();
+    }
+
+    void drawMenuBar2D() {
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("Fichier")) {
                 if (ImGui::MenuItem("Nouveau")) buildScene();

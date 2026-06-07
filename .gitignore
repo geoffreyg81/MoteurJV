@@ -14,6 +14,7 @@
 
 # Scènes / niveaux générés par l'éditeur
 examples/05_editor/scene.json
+examples/05_editor/scene3d.json
 examples/05_editor/niveau*.json
 
 # Layout ImGui (généré au runtime)
