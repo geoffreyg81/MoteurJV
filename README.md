@@ -392,13 +392,13 @@ matière à contributions et à versions futures.
 
 ### 🎨 Rendu & graphismes
 - [x] **Caméra 2D** : suivi du joueur en jeu, pan/zoom dans l'éditeur (fait)
-- [ ] **Parallaxe** et couches (z-order, calques d'arrière/avant-plan)
+- [x] **Parallaxe** (décor de collines qui défile en jeu) — fait ; calques/z-order avancés à venir
 - [ ] **Tilemap** : décors à base de tuiles, import Tiled (`.tmx`)
 - [x] **Particules** (pièce, poussière de saut/atterrissage) + **secousse d'écran** — fait
 - [ ] Particules avancées (émetteurs configurables, explosions, fumée)
 - [ ] **Éclairage 2D** et ombres dynamiques
 - [ ] **Shaders** personnalisés (post-traitement : flou, bloom, CRT…)
-- [ ] **Texte riche** : polices custom, alignement, info-bulles
+- [x] **Texte dans le monde** (composant `Label`, panneaux/titres) — fait ; texte riche (polices custom, alignement) à venir
 - [ ] **Atlas de textures** automatique (packing) pour les performances
 - [ ] **Flip/teinte/opacité** par sprite, modes de fusion (additif…)
 
@@ -425,7 +425,7 @@ matière à contributions et à versions futures.
 - [ ] **Système d'événements / messages** entre entités
 - [ ] **Prefabs** : modèles d'entités réutilisables et instanciables
 - [ ] **Hiérarchie parent/enfant** (transforms relatifs, attacher une arme au héros)
-- [ ] **Timers, tweens et courbes** d'animation (easing)
+- [x] **Plateformes mobiles / tweens** (composant `Mover`, va-et-vient en sinus) — fait ; courbes d'easing variées à venir
 - [ ] **Sauvegarde de partie** (progression, high-scores)
 - [ ] **Système d'inventaire / stats** générique
 

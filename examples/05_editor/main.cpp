@@ -54,6 +54,12 @@ struct Controllable {                                         // "joueur"
 struct Particle { Vec2 pos, vel; float life = 0, maxLife = 0; mjv::Color color; };
 struct Tile {};                                               // tuile peinte (pour effacer/repérer)
 struct Hazard {};                                             // piège : contact = perte de vie
+struct Mover {                                                // déplacement va-et-vient (plateforme mobile)
+    Vec2 offset{0.0f, -120.0f};
+    float period = 2.5f;
+    float t = 0.0f; Vec2 origin{}; bool init = false;
+};
+struct Label { std::string text = "Texte"; int size = 28; };  // texte affiché dans le monde
 struct Chase { float speed = 130.0f; float range = 360.0f; bool jump = true; };  // poursuit le joueur
 struct Shooter { float interval = 1.6f; float bulletSpeed = 330.0f; float range = 480.0f; float timer = 0.0f; }; // tire
 struct Projectile { Vec2 vel; float life = 3.0f; };           // tir (runtime)
@@ -156,6 +162,7 @@ private:
     Vec2 m_fixedCorner;
     bool m_rotating = false;
     char m_hierFilter[48] = {0};
+    bool m_parallax = true;
     std::vector<json> m_undo, m_redo;
     json m_clipboard;
     bool m_hasClipboard = false;
@@ -323,6 +330,20 @@ private:
         m_reg.add<RectShape>(e, RectShape{{42.0f, 18.0f}, mjv::Color{200, 40, 40, 255}});
         m_reg.add<Hazard>(e, Hazard{}); // pas d'AABB : déclencheur, pas un mur solide
         m_reg.add<Name>(e, Name{"Piege"}); m_selected = e; setStatus("Piege cree"); return e;
+    }
+    Entity spawnMover(Vec2 pos) {
+        Entity e = m_reg.create();
+        m_reg.add<Transform2D>(e, Transform2D{pos});
+        m_reg.add<RectShape>(e, RectShape{{120.0f, 24.0f}, mjv::Color{120, 90, 200, 255}});
+        m_reg.add<AABB>(e, AABB{{60.0f, 12.0f}});
+        m_reg.add<Mover>(e, Mover{});
+        m_reg.add<Name>(e, Name{"Plateforme mobile"}); m_selected = e; setStatus("Plateforme mobile creee"); return e;
+    }
+    Entity spawnLabel(Vec2 pos) {
+        Entity e = m_reg.create();
+        m_reg.add<Transform2D>(e, Transform2D{pos});
+        m_reg.add<Label>(e, Label{});
+        m_reg.add<Name>(e, Name{"Texte"}); m_selected = e; setStatus("Texte cree"); return e;
     }
     // Pièce à ramasser : sprite SANS AABB (pas un mur solide, juste un trigger).
     Entity spawnCoin(Vec2 pos) {
@@ -495,6 +516,15 @@ private:
             if (t.position.x < p.originX - p.range) p.dir = 1.0f;
             if (m_reg.has<RigidBody>(e)) m_reg.get<RigidBody>(e).velocity.x = p.dir * p.speed;
             else                         t.position.x += p.dir * p.speed * dt;
+        });
+    }
+
+    void moverSystem(float dt) {
+        m_reg.view<Mover, Transform2D>([&](Entity, Mover& m, Transform2D& tr) {
+            if (!m.init) { m.origin = tr.position; m.init = true; }
+            m.t += dt;
+            const float k = std::sin(m.t / std::max(0.1f, m.period) * 6.2832f) * 0.5f + 0.5f;
+            tr.position = m.origin + m.offset * k;
         });
     }
 
@@ -690,6 +720,7 @@ private:
                 controlSystem(dt);
                 patrolSystem(dt);
                 chaseSystem(dt);
+                moverSystem(dt);
                 physicsStep(m_reg, std::min(dt, 0.033f), {0.0f, kGravity});
                 animationSystem(dt);
                 gameplaySystem();
@@ -878,6 +909,7 @@ private:
             if (firstPlayer(p)) { cam.target = {p.x, p.y}; cam.zoom = 1.0f; }
             if (m_shake > 0.0f) { cam.target.x += (frand() * 2 - 1) * m_shake * 20.0f; cam.target.y += (frand() * 2 - 1) * m_shake * 20.0f; }
         }
+        if (m_parallax && m_playing) drawParallax(cam.target.x); // décor lointain (repère écran)
         BeginMode2D(cam);
         if (!m_playing && m_snap) drawGrid();
 
@@ -907,6 +939,11 @@ private:
             const ::Rectangle dst{tr.position.x, tr.position.y, a.frameW * tr.scale.x, a.frameH * tr.scale.y};
             DrawTexturePro(t, src, dst, ::Vector2{dst.width * 0.5f, dst.height * 0.5f}, tr.rotation, ::WHITE);
         });
+        // Textes dans le monde.
+        m_reg.view<Transform2D, Label>([&](Entity e, Transform2D& tr, Label& l) {
+            if (!m_playing && isHidden(e)) return;
+            Graphics::drawText(l.text, tr.position, l.size, mjv::Color{245, 245, 245, 255});
+        });
         // Particules.
         for (const Particle& pt : m_particles) {
             const float k = pt.maxLife > 0.0f ? pt.life / pt.maxLife : 0.0f;
@@ -928,6 +965,20 @@ private:
         EndMode2D();
         if (m_playing) drawHud();
         EndTextureMode();
+    }
+
+    // Décor parallaxe : deux couches de collines qui défilent moins vite (repère écran).
+    void drawParallax(float camx) {
+        auto hills = [&](float factor, mjv::Color col, float topY, float r) {
+            const float scroll = -camx * factor;
+            const float spacing = r * 1.4f;
+            const int i0 = static_cast<int>(std::floor((-r - scroll) / spacing));
+            const int i1 = static_cast<int>(std::ceil((kWorldW + r - scroll) / spacing));
+            for (int i = i0; i <= i1; ++i)
+                Graphics::drawCircle({i * spacing + scroll, topY}, r, col);
+        };
+        hills(0.15f, mjv::Color{150, 195, 165, 255}, kWorldH - 30.0f, 175.0f);
+        hills(0.30f, mjv::Color{110, 175, 120, 255}, kWorldH + 20.0f, 230.0f);
     }
 
     void drawGrid() {
@@ -1060,6 +1111,8 @@ private:
                 if (ImGui::MenuItem("Piece"))      { pushUndo(); spawnCoin({550.0f, 300.0f}); }
                 if (ImGui::MenuItem("Objectif"))   { pushUndo(); spawnGoal({600.0f, 250.0f}); }
                 if (ImGui::MenuItem("Piege"))      { pushUndo(); spawnHazard({560.0f, 350.0f}); }
+                if (ImGui::MenuItem("Plateforme mobile")) { pushUndo(); spawnMover({500.0f, 350.0f}); }
+                if (ImGui::MenuItem("Texte"))      { pushUndo(); spawnLabel({300.0f, 150.0f}); }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Entite vide")) { pushUndo(); newEntity(); }
                 ImGui::EndMenu();
@@ -1087,6 +1140,7 @@ private:
                     ImGui::TextDisabled("Clic gauche dans la scene = poser/effacer");
                 }
                 ImGui::Separator();
+                ImGui::Checkbox("Decor parallaxe (en jeu)", &m_parallax);
                 if (ImGui::MenuItem("Recentrer la vue")) { m_camTarget = {kWorldW * 0.5f, kWorldH * 0.5f}; m_zoom = 1.0f; }
                 ImGui::TextDisabled("Clic droit : deplacer la vue");
                 ImGui::TextDisabled("Molette : zoom");
@@ -1167,6 +1221,8 @@ private:
         if (m_reg.has<Goal>(e))         s += "O";
         if (m_reg.has<Hazard>(e))       s += "!";
         if (m_reg.has<OneWay>(e))       s += "~";
+        if (m_reg.has<Mover>(e))        s += "M";
+        if (m_reg.has<Label>(e))        s += "L";
         if (m_reg.has<Health>(e))       s += "H";
         if (m_reg.has<RigidBody>(e))    s += "P";
         if (m_reg.has<AnimSprite>(e))   s += "A";
@@ -1304,6 +1360,19 @@ private:
         }
         if (m_reg.has<Health>(m_selected) && ImGui::CollapsingHeader("Vies", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::DragInt("nombre de vies", &m_reg.get<Health>(m_selected).lives, 1.0f, 1, 99);
+        }
+        if (m_reg.has<Mover>(m_selected) && ImGui::CollapsingHeader("Plateforme mobile", ImGuiTreeNodeFlags_DefaultOpen)) {
+            Mover& m = m_reg.get<Mover>(m_selected);
+            ImGui::DragFloat2("deplacement", &m.offset.x, 1.0f);
+            ImGui::DragFloat("duree (s)", &m.period, 0.1f, 0.2f, 30.0f);
+            ImGui::TextDisabled("va-et-vient depuis la position d'edition");
+        }
+        if (m_reg.has<Label>(m_selected) && ImGui::CollapsingHeader("Texte", ImGuiTreeNodeFlags_DefaultOpen)) {
+            Label& l = m_reg.get<Label>(m_selected);
+            char tb[128];
+            std::snprintf(tb, sizeof(tb), "%s", l.text.c_str());
+            if (ImGui::InputText("contenu", tb, sizeof(tb))) l.text = tb;
+            ImGui::DragInt("taille", &l.size, 1.0f, 8, 120);
         }
 
         if (m_reg.has<AABB>(m_selected)) {
@@ -1493,6 +1562,8 @@ private:
         if (m_reg.has<Chase>(e))       { Chase& ch = m_reg.get<Chase>(e); je["Chase"] = {{"speed", ch.speed}, {"range", ch.range}, {"jump", ch.jump}}; }
         if (m_reg.has<Shooter>(e))     { Shooter& s = m_reg.get<Shooter>(e); je["Shooter"] = {{"interval", s.interval}, {"bulletSpeed", s.bulletSpeed}, {"range", s.range}}; }
         if (m_reg.has<Spawner>(e))     { Spawner& sp = m_reg.get<Spawner>(e); je["Spawner"] = {{"interval", sp.interval}, {"maxAlive", sp.maxAlive}, {"kind", sp.kind}}; }
+        if (m_reg.has<Mover>(e))       { Mover& m = m_reg.get<Mover>(e); je["Mover"] = {{"offset", vecToJ(m.offset)}, {"period", m.period}}; }
+        if (m_reg.has<Label>(e))       { Label& l = m_reg.get<Label>(e); je["Label"] = {{"text", l.text}, {"size", l.size}}; }
         if (m_reg.has<Collectible>(e)) je["Collectible"] = {{"points", m_reg.get<Collectible>(e).points}};
         if (m_reg.has<Goal>(e))        je["Goal"] = true;
         if (m_reg.has<Hazard>(e))      je["Hazard"] = true;
@@ -1522,6 +1593,8 @@ private:
         if (je.contains("Chase"))       { const json& j = je["Chase"]; Chase ch; ch.speed = j["speed"].get<float>(); ch.range = j["range"].get<float>(); ch.jump = j.value("jump", true); m_reg.add<Chase>(e, ch); }
         if (je.contains("Shooter"))     { const json& j = je["Shooter"]; Shooter s; s.interval = j["interval"].get<float>(); s.bulletSpeed = j["bulletSpeed"].get<float>(); s.range = j["range"].get<float>(); m_reg.add<Shooter>(e, s); }
         if (je.contains("Spawner"))     { const json& j = je["Spawner"]; Spawner sp; sp.interval = j["interval"].get<float>(); sp.maxAlive = j["maxAlive"].get<int>(); sp.kind = j["kind"].get<int>(); m_reg.add<Spawner>(e, sp); }
+        if (je.contains("Mover"))       { const json& j = je["Mover"]; Mover m; m.offset = jToVec(j["offset"]); m.period = j["period"].get<float>(); m_reg.add<Mover>(e, m); }
+        if (je.contains("Label"))       { const json& j = je["Label"]; m_reg.add<Label>(e, Label{j["text"].get<std::string>(), j["size"].get<int>()}); }
         if (je.contains("Collectible")) m_reg.add<Collectible>(e, Collectible{je["Collectible"]["points"].get<int>()});
         if (je.contains("Goal"))        m_reg.add<Goal>(e, Goal{});
         if (je.contains("Hazard"))      m_reg.add<Hazard>(e, Hazard{});
