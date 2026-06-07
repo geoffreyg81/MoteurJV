@@ -184,11 +184,20 @@ private:
     bool m_eraseMode = false;
     std::string m_paintTile = std::string(MJV_ASSET_DIR) + "/tile.png";
 
+    // Polices TTF (typographie soignée) : texte courant, sous-titres, gros titre.
+    ImFont* m_fontText = nullptr;
+    ImFont* m_fontH    = nullptr;
+    ImFont* m_fontBig  = nullptr;
+
     void onStart() override {
         SetExitKey(KEY_NULL); // Echap sert au menu pause, pas à fermer
         std::srand(1234);
-        rlImGuiSetup(true);
+        // Init ImGui "à la main" pour injecter nos polices TTF avant la
+        // construction de l'atlas (rlImGuiSetup = Begin + theme + End).
+        rlImGuiBeginInitImGui();
         ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+        loadFonts();
+        rlImGuiEndInitImGui();
         applyDarkTheme();
         m_target = LoadRenderTexture(kWorldW, kWorldH);
         const std::string dir = std::string(MJV_ASSET_DIR) + "/";
@@ -206,53 +215,101 @@ private:
             m_levelNum = 2; buildLevel2(); saveLevel(); // niveau 2
             m_levelNum = 1; loadLevel(1);
         }
+        // Démarrage direct dans un mode (pratique pour les démos/captures).
+        if (const char* m = std::getenv("MJV_MODE")) {
+            if (std::string(m) == "2d") m_mode = Mode2D;
+            else if (std::string(m) == "3d") { m_mode = Mode3D; init3DDefault(); }
+        }
+    }
+
+    // --------------------------------------------------------------- polices
+    // Charge des polices TTF anti-aliasées (3 tailles) avec les glyphes latins
+    // + quelques symboles (flèches, puces, étoiles…) utilisés dans l'UI.
+    void loadFonts() {
+        ImGuiIO& io = ImGui::GetIO();
+        const std::string dir = std::string(MJV_FONT_DIR) + "/";
+        const std::string reg = dir + "DejaVuSans.ttf";
+        const std::string bld = dir + "DejaVuSans-Bold.ttf";
+
+        // Plage de glyphes : latin + symboles d'interface.
+        static ImVector<ImWchar> ranges;
+        ImFontGlyphRangesBuilder b;
+        b.AddRanges(io.Fonts->GetGlyphRangesDefault());
+        b.AddText(u8"▶■◆●★✚✦✕↶↷⏵⏹⚙←→↑↓✓✻•»«…");
+        b.BuildRanges(&ranges);
+
+        ImFontConfig cfg;
+        cfg.OversampleH = 3; cfg.OversampleV = 2; cfg.PixelSnapH = false;
+
+        if (FileExists(reg.c_str())) {
+            m_fontText = io.Fonts->AddFontFromFileTTF(reg.c_str(), 18.0f, &cfg, ranges.Data);
+            m_fontH    = io.Fonts->AddFontFromFileTTF(bld.c_str(), 21.0f, &cfg, ranges.Data);
+            m_fontBig  = io.Fonts->AddFontFromFileTTF(bld.c_str(), 40.0f, &cfg, ranges.Data);
+            io.FontDefault = m_fontText;
+        }
+        // Si les .ttf manquent, ImGui retombe sur sa police par défaut.
     }
 
     // ----------------------------------------------------------------- thème
     void applyDarkTheme() {
         ImGui::StyleColorsDark();
         ImGuiIO& io = ImGui::GetIO();
-        io.FontGlobalScale = 1.18f; // interface un peu plus grande/lisible
+        io.FontGlobalScale = m_fontText ? 1.0f : 1.18f; // TTF déjà à la bonne taille
 
         ImGuiStyle& s = ImGui::GetStyle();
-        s.WindowRounding = 7.0f; s.ChildRounding = 7.0f; s.PopupRounding = 7.0f;
-        s.FrameRounding = 5.0f; s.GrabRounding = 5.0f; s.TabRounding = 6.0f;
-        s.ScrollbarRounding = 9.0f;
-        s.WindowPadding = ImVec2(12, 12); s.FramePadding = ImVec2(9, 5);
-        s.ItemSpacing = ImVec2(9, 8); s.ItemInnerSpacing = ImVec2(7, 5);
+        s.WindowRounding = 9.0f; s.ChildRounding = 8.0f; s.PopupRounding = 8.0f;
+        s.FrameRounding = 7.0f; s.GrabRounding = 7.0f; s.TabRounding = 8.0f;
+        s.ScrollbarRounding = 10.0f;
+        s.WindowPadding = ImVec2(13, 13); s.FramePadding = ImVec2(11, 7);
+        s.ItemSpacing = ImVec2(10, 9); s.ItemInnerSpacing = ImVec2(8, 6);
+        s.CellPadding = ImVec2(8, 5);
         s.WindowBorderSize = 1.0f; s.FrameBorderSize = 0.0f; s.PopupBorderSize = 1.0f;
-        s.ScrollbarSize = 13.0f; s.GrabMinSize = 11.0f;
-        s.WindowTitleAlign = ImVec2(0.02f, 0.5f);
+        s.ChildBorderSize = 1.0f; s.TabBorderSize = 0.0f;
+        s.ScrollbarSize = 14.0f; s.GrabMinSize = 12.0f;
+        s.WindowTitleAlign = ImVec2(0.5f, 0.5f);
         s.WindowMenuButtonPosition = ImGuiDir_None;
+        s.SeparatorTextBorderSize = 2.0f; s.SeparatorTextPadding = ImVec2(18, 6);
+        s.DockingSeparatorSize = 2.0f;
 
         auto rgb = [](int r, int g, int b, float a = 1.0f) { return ImVec4(r / 255.0f, g / 255.0f, b / 255.0f, a); };
-        const ImVec4 base   = rgb(24, 26, 33);
-        const ImVec4 panel  = rgb(33, 36, 45);
-        const ImVec4 panel2 = rgb(42, 46, 57);
-        const ImVec4 accent = rgb(78, 154, 241);
-        const ImVec4 accentH= rgb(108, 176, 255);
-        const ImVec4 text   = rgb(226, 229, 238);
-        const ImVec4 textD  = rgb(126, 132, 148);
-        const ImVec4 border = rgb(54, 58, 72);
+        // Palette "charbon + azur" : fond profond, panneaux contrastés, accent vif.
+        const ImVec4 base    = rgb(22, 24, 31);   // fond des fenêtres
+        const ImVec4 deep    = rgb(15, 16, 22);   // barres titre / menu
+        const ImVec4 panel   = rgb(32, 35, 44);   // champs, boutons
+        const ImVec4 panel2  = rgb(44, 48, 60);   // survol
+        const ImVec4 panel3  = rgb(56, 61, 76);   // actif
+        const ImVec4 accent  = rgb(80, 150, 255); // azur
+        const ImVec4 accentH = rgb(120, 178, 255);
+        const ImVec4 accentS = rgb(80, 150, 255, 0.22f); // sélection translucide
+        const ImVec4 text    = rgb(228, 232, 242);
+        const ImVec4 textD   = rgb(132, 139, 158);
+        const ImVec4 border  = rgb(48, 52, 66);
+        const ImVec4 gold    = rgb(255, 198, 86);
 
         ImVec4* c = s.Colors;
         c[ImGuiCol_Text] = text;             c[ImGuiCol_TextDisabled] = textD;
-        c[ImGuiCol_WindowBg] = base;         c[ImGuiCol_ChildBg] = base;
-        c[ImGuiCol_PopupBg] = rgb(28, 30, 38);
+        c[ImGuiCol_WindowBg] = base;         c[ImGuiCol_ChildBg] = ImVec4(0, 0, 0, 0);
+        c[ImGuiCol_PopupBg] = rgb(26, 28, 36, 0.98f);
         c[ImGuiCol_Border] = border;         c[ImGuiCol_BorderShadow] = ImVec4(0, 0, 0, 0);
-        c[ImGuiCol_MenuBarBg] = rgb(20, 22, 28);
-        c[ImGuiCol_FrameBg] = panel;         c[ImGuiCol_FrameBgHovered] = panel2; c[ImGuiCol_FrameBgActive] = panel2;
-        c[ImGuiCol_TitleBg] = rgb(20, 22, 28); c[ImGuiCol_TitleBgActive] = rgb(20, 22, 28); c[ImGuiCol_TitleBgCollapsed] = rgb(20, 22, 28);
-        c[ImGuiCol_Header] = panel2;         c[ImGuiCol_HeaderHovered] = rgb(56, 62, 78); c[ImGuiCol_HeaderActive] = accent;
-        c[ImGuiCol_Button] = panel2;         c[ImGuiCol_ButtonHovered] = rgb(58, 96, 150); c[ImGuiCol_ButtonActive] = accent;
+        c[ImGuiCol_MenuBarBg] = deep;
+        c[ImGuiCol_FrameBg] = panel;         c[ImGuiCol_FrameBgHovered] = panel2; c[ImGuiCol_FrameBgActive] = panel3;
+        c[ImGuiCol_TitleBg] = deep;          c[ImGuiCol_TitleBgActive] = deep; c[ImGuiCol_TitleBgCollapsed] = deep;
+        c[ImGuiCol_Header] = accentS;        c[ImGuiCol_HeaderHovered] = panel2; c[ImGuiCol_HeaderActive] = ImVec4(accent.x, accent.y, accent.z, 0.40f);
+        c[ImGuiCol_Button] = panel2;         c[ImGuiCol_ButtonHovered] = panel3; c[ImGuiCol_ButtonActive] = accent;
         c[ImGuiCol_CheckMark] = accent;      c[ImGuiCol_SliderGrab] = accent; c[ImGuiCol_SliderGrabActive] = accentH;
         c[ImGuiCol_Separator] = border;      c[ImGuiCol_SeparatorHovered] = accent; c[ImGuiCol_SeparatorActive] = accentH;
-        c[ImGuiCol_Tab] = panel;             c[ImGuiCol_TabHovered] = accentH; c[ImGuiCol_TabActive] = accent;
-        c[ImGuiCol_TabUnfocused] = panel;    c[ImGuiCol_TabUnfocusedActive] = panel2;
-        c[ImGuiCol_ScrollbarBg] = base;      c[ImGuiCol_ScrollbarGrab] = panel2; c[ImGuiCol_ScrollbarGrabHovered] = rgb(70, 76, 94);
+        c[ImGuiCol_Tab] = deep;              c[ImGuiCol_TabHovered] = panel3; c[ImGuiCol_TabActive] = panel;
+        c[ImGuiCol_TabUnfocused] = deep;     c[ImGuiCol_TabUnfocusedActive] = panel;
+        c[ImGuiCol_ScrollbarBg] = ImVec4(0, 0, 0, 0); c[ImGuiCol_ScrollbarGrab] = panel2; c[ImGuiCol_ScrollbarGrabHovered] = panel3; c[ImGuiCol_ScrollbarGrabActive] = accent;
         c[ImGuiCol_ResizeGrip] = panel2;     c[ImGuiCol_ResizeGripHovered] = accent; c[ImGuiCol_ResizeGripActive] = accentH;
-        c[ImGuiCol_DockingPreview] = ImVec4(accent.x, accent.y, accent.z, 0.5f);
-        c[ImGuiCol_DragDropTarget] = rgb(255, 200, 80);
+        c[ImGuiCol_DockingPreview] = ImVec4(accent.x, accent.y, accent.z, 0.45f);
+        c[ImGuiCol_DockingEmptyBg] = deep;
+        c[ImGuiCol_NavHighlight] = accent;
+        c[ImGuiCol_TextSelectedBg] = accentS;
+        c[ImGuiCol_TableHeaderBg] = panel;   c[ImGuiCol_TableRowBgAlt] = rgb(255, 255, 255, 0.02f);
+        c[ImGuiCol_TableBorderLight] = border; c[ImGuiCol_TableBorderStrong] = border;
+        c[ImGuiCol_DragDropTarget] = gold;
+        c[ImGuiCol_PlotHistogram] = accent;  c[ImGuiCol_PlotHistogramHovered] = accentH;
     }
 
     // Couleur d'une entité selon son comportement (pour la hiérarchie).
@@ -912,7 +969,9 @@ private:
 
     void renderSceneToTexture() {
         BeginTextureMode(m_target);
-        Graphics::clear(Colors::SkyBlue);
+        // Ciel en dégradé vertical (plus joli qu'un aplat).
+        ClearBackground(::Color{28, 32, 44, 255});
+        DrawRectangleGradientV(0, 0, kWorldW, kWorldH, ::Color{92, 148, 220, 255}, ::Color{176, 212, 240, 255});
 
         ::Camera2D cam{};
         cam.offset = {kWorldW * 0.5f, kWorldH * 0.5f};
@@ -1112,21 +1171,106 @@ private:
     }
 
     // ============================ MODE 3D ============================
+    // Texte centré horizontalement dans la fenêtre courante.
+    void centerText(const char* t, ImFont* f, ImVec4 col) {
+        if (f) ImGui::PushFont(f);
+        const float w = ImGui::CalcTextSize(t).x;
+        ImGui::SetCursorPosX((ImGui::GetWindowSize().x - w) * 0.5f);
+        ImGui::TextColored(col, "%s", t);
+        if (f) ImGui::PopFont();
+    }
+
+    // Carte cliquable de l'écran d'accueil. Renvoie true si on la choisit.
+    bool startupCard(const char* id, const char* badge, const char* titre,
+                     const char* desc, ImVec4 accent) {
+        const ImVec2 sz(264, 286);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.135f, 0.15f, 0.19f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(accent.x, accent.y, accent.z, 0.55f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.5f);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f);
+        ImGui::BeginChild(id, sz, true, ImGuiWindowFlags_NoScrollbar);
+
+        // Liseré coloré en haut de la carte.
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 p0 = ImGui::GetWindowPos();
+        dl->AddRectFilled(p0, ImVec2(p0.x + sz.x, p0.y + 6),
+                          ImGui::GetColorU32(accent), 0.0f);
+        dl->AddRectFilled(ImVec2(p0.x, p0.y + 4), ImVec2(p0.x + sz.x, p0.y + 6),
+                          ImGui::GetColorU32(ImVec4(accent.x, accent.y, accent.z, 0.0f)));
+
+        ImGui::Dummy(ImVec2(0, 14));
+        centerText(badge, m_fontBig, accent);
+        ImGui::Dummy(ImVec2(0, 6));
+        centerText(titre, m_fontH, ImVec4(0.93f, 0.95f, 0.99f, 1.0f));
+        ImGui::Dummy(ImVec2(0, 8));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.62f, 0.66f, 0.76f, 1.0f));
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + sz.x - 28);
+        ImGui::TextUnformatted(desc);
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+
+        ImGui::SetCursorPosY(sz.y - 50);
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(accent.x, accent.y, accent.z, 0.85f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, accent);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(accent.x * 0.8f, accent.y * 0.8f, accent.z * 0.8f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
+        const bool clicked = ImGui::Button((std::string("Creer  →##") + id).c_str(), ImVec2(-1, 34));
+        ImGui::PopStyleColor(4);
+
+        ImGui::EndChild();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor(2);
+        return clicked;
+    }
+
     void drawStartup() {
         const ImGuiViewport* vp = ImGui::GetMainViewport();
+        // Fond plein écran en dégradé vertical (derrière la fenêtre d'accueil).
+        ImDrawList* bg = ImGui::GetBackgroundDrawList();
+        bg->AddRectFilledMultiColor(vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y),
+                                    IM_COL32(20, 23, 32, 255), IM_COL32(20, 23, 32, 255),
+                                    IM_COL32(12, 13, 19, 255), IM_COL32(14, 16, 24, 255));
+        // Halo bleuté discret en haut.
+        bg->AddRectFilledMultiColor(vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y * 0.55f),
+                                    IM_COL32(60, 110, 220, 38), IM_COL32(60, 110, 220, 38),
+                                    IM_COL32(0, 0, 0, 0), IM_COL32(0, 0, 0, 0));
+
         ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(480, 300));
-        ImGui::Begin("Bienvenue dans MoteurJV", nullptr,
-                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking);
-        ImGui::TextWrapped("Quel type de projet veux-tu creer ?");
+        ImGui::SetNextWindowSize(ImVec2(640, 540));
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
+        ImGui::Begin("##startup", nullptr,
+                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar |
+                     ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoScrollbar);
+
+        ImGui::Dummy(ImVec2(0, 8));
+        centerText("MoteurJV", m_fontBig, ImVec4(0.45f, 0.66f, 1.0f, 1.0f));
+        centerText("Moteur de jeu 2D & 3D  -  editeur no-code", m_fontText, ImVec4(0.6f, 0.65f, 0.76f, 1.0f));
+        ImGui::Dummy(ImVec2(0, 10));
+        centerText("Quel type de projet veux-tu creer ?", m_fontH, ImVec4(0.85f, 0.88f, 0.95f, 1.0f));
         ImGui::Dummy(ImVec2(0, 16));
-        if (ImGui::Button("Jeu 2D", ImVec2(200, 90))) m_mode = Mode2D;
-        ImGui::SameLine();
-        if (ImGui::Button("Jeu 3D", ImVec2(200, 90))) { m_mode = Mode3D; init3DDefault(); }
-        ImGui::Dummy(ImVec2(0, 12));
-        ImGui::TextDisabled("2D : platformer, sprites, IA, editeur complet");
-        ImGui::TextDisabled("3D : scene 3D, modeles Kenney, eclairage");
+
+        // Deux cartes centrées.
+        const float cardsW = 264 * 2 + 24;
+        ImGui::SetCursorPosX((ImGui::GetWindowSize().x - cardsW) * 0.5f);
+        ImGui::BeginGroup();
+        if (startupCard("card2d", "2D", "Jeu 2D",
+                        "Platformer, sprites, IA d'ennemis, tuiles, physique et l'editeur complet facon Unity.",
+                        ImVec4(0.36f, 0.62f, 1.0f, 1.0f)))
+            m_mode = Mode2D;
+        ImGui::SameLine(0, 24);
+        if (startupCard("card3d", "3D", "Jeu 3D",
+                        "Scene 3D editable, modeles Kenney (.glb), eclairage directionnel et camera orbitale.",
+                        ImVec4(1.0f, 0.66f, 0.28f, 1.0f))) {
+            m_mode = Mode3D; init3DDefault();
+        }
+        ImGui::EndGroup();
+
+        ImGui::Dummy(ImVec2(0, 10));
+        centerText("Tu pourras tout regler ensuite a la souris.", m_fontText, ImVec4(0.42f, 0.46f, 0.56f, 1.0f));
+
         ImGui::End();
+        ImGui::PopStyleColor(2);
     }
     void init3DDefault() {
         m_objs3d.clear(); m_sel3d = -1;
@@ -1160,7 +1304,9 @@ private:
     }
     void render3DScene() {
         BeginTextureMode(m_target);
-        Graphics::clear(Colors::SkyBlue);
+        // Ciel en dégradé (rendu en 2D, derrière la scène 3D).
+        ClearBackground(::Color{120, 162, 214, 255});
+        DrawRectangleGradientV(0, 0, kWorldW, kWorldH, ::Color{86, 130, 196, 255}, ::Color{178, 206, 232, 255});
         mjv::Camera3D cam;
         cam.target = m_pivot3d;
         cam.position = m_pivot3d + Vec3{std::cos(m_pitch3d) * std::sin(m_yaw3d), std::sin(m_pitch3d), std::cos(m_pitch3d) * std::cos(m_yaw3d)} * m_dist3d;
