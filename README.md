@@ -409,7 +409,8 @@ matière à contributions et à versions futures.
 - [ ] **Matériaux** avancés (PBR, normal maps)
 - [ ] **Physique 3D** (collisions de boîtes/sphères, gravité)
 - [ ] **Caméra première personne** + contrôleur FPS
-- [ ] Étendre l'**éditeur** et le **scripting Lua** à la 3D
+- [x] **Éditeur étendu à la 3D** — écran de démarrage *2D / 3D* au lancement, l'éditeur façon Unity s'adapte (hiérarchie, inspecteur, palette et menus dédiés ; scène 3D éditable, caméra orbitale, save/load) — fait
+- [ ] Étendre le **scripting Lua** à la 3D
 
 ### 🧮 Physique & collisions
 - [x] **Collision dynamique ↔ dynamique** (les corps se poussent / s'empilent) — fait
